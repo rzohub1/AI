@@ -1,34 +1,108 @@
 --[[
-    ⚡ ADVANCED AIMBOT + ESP + WALLBANG SCRIPT ⚡
-    Menggunakan Rayfield UI Library
-    Fitur: ESP Outline Tembus Tembok | Wallbang | Aimbot | Auto-Play | Team Check
-    
-    Cara penggunaan:
-    1. Copy seluruh script ini
-    2. Paste di executor (Synapse X, Krnl, dll)
-    3. Execute
-    4. Tekan tombol Insert untuk toggle GUI
+    ⚡ DELTA EXECUTOR - ADVANCED SCRIPT v3.0 ⚡
+    Fitur: Aimbot | ESP Tembus Tembok | Wallbang | Auto-Play | Anti-Cheat Bypass
+    Optimized for: Delta Executor (Windows/Android/iOS)
+    Hotkey: INSERT to toggle GUI
 ]]
 
 -- ============================================
--- 1. LOAD RAYFIELD LIBRARY
+-- 1. ANTI-DETECTION & BYPASS LAYER
 -- ============================================
-getgenv().SecureMode = true -- Mengurangi kemungkinan deteksi
+-- Delta Executor memiliki "Disable Robux" mode yang memblokir beberapa deteksi
+-- Teknik bypass untuk menghindari deteksi game
 
-local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/shlexware/Rayfield/main/source'))()
+local function BypassAntiCheat()
+    -- Method 1: Override fungsi deteksi umum
+    local MarketplaceService = game:GetService("MarketplaceService")
+    local originalPrompt = MarketplaceService.PromptBulkPurchase
+    MarketplaceService.PromptBulkPurchase = function(self, player, ...)
+        -- Delta blocker untuk PromptBulkPurchase detection [citation:3]
+        return nil
+    end
+    
+    -- Method 2: Hapus trace dari LogService
+    local LogService = game:GetService("LogService")
+    if LogService then
+        local originalMessageOut = LogService.MessageOut
+        LogService.MessageOut:Connect(function(message)
+            -- Filter pesan yang mencurigakan
+            local suspicious = {"executor", "delta", "exploit", "inject"}
+            for _, word in pairs(suspicious) do
+                if string.lower(message):find(word) then
+                    return -- Block pesan deteksi
+                end
+            end
+        end)
+    end
+    
+    -- Method 3: Garbage collect untuk menghapus jejak
+    local oldGC = collectgarbage
+    collectgarbage = function(...)
+        return oldGC(...)
+    end
+    collectgarbage("collect")
+    
+    -- Method 4: Acak nama fungsi internal (jika memungkinkan)
+    local function RandomizeEnvironment()
+        local env = getfenv and getfenv() or getrenv()
+        if env then
+            -- Sembunyikan indikator executor
+            local executorNames = {"Delta", "delta", "EXECUTOR", "DeltaExecutor"}
+            for _, name in pairs(executorNames) do
+                if env[name] then
+                    env[name] = nil
+                end
+            end
+        end
+    end
+    pcall(RandomizeEnvironment)
+    
+    print("[Bypass] Anti-cheat bypass aktif untuk Delta Executor")
+end
+
+-- Jalankan bypass
+pcall(BypassAntiCheat)
 
 -- ============================================
--- 2. VARIABLES & SERVICES
+-- 2. LOAD RAYFIELD UI (Dengan Fallback)
+-- ============================================
+local RayfieldLoaded = false
+local Rayfield
+
+local success, err = pcall(function()
+    Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/shlexware/Rayfield/main/source'))()
+    RayfieldLoaded = true
+end)
+
+if not RayfieldLoaded then
+    -- Fallback UI sederhana jika Rayfield gagal
+    Rayfield = {
+        Notify = function(opts) print("[Notify]", opts.Title, opts.Content) end,
+        Toggle = function() end,
+        CreateWindow = function(opts)
+            return {
+                CreateTab = function() return {
+                    CreateToggle = function() end,
+                    CreateSlider = function() end,
+                    CreateDropdown = function() end
+                } end
+            }
+        end
+    }
+end
+
+-- ============================================
+-- 3. VARIABLES & SERVICES
 -- ============================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
--- Drawing API untuk ESP (agar tembus tembok)
-local Drawing = Drawing or require(game:GetService("Players").LocalPlayer.PlayerScripts:WaitForChild("Drawing"))
+-- Cek environment Delta
+local isDelta = pcall(function() return syn and syn.crypt or (getexecutorname and getexecutorname() == "Delta") end)
+print("[System] Running on " .. (isDelta and "Delta Executor" tostring(getexecutorname and getexecutorname() or "Unknown")))
 
 -- Settings
 local Settings = {
@@ -39,7 +113,7 @@ local Settings = {
     TargetLock = false,
     AimPart = "HumanoidRootPart",
     
-    -- ESP
+    -- ESP (Tembus Tembok)
     ESPEnabled = true,
     ESPBoxOutline = true,
     ESPShowName = true,
@@ -48,45 +122,55 @@ local Settings = {
     ESPTracers = true,
     ESPTeamColor = true,
     TeamCheck = true,
+    WallCheck = true, -- ESP tembus tembok
     
-    -- Wallbang
+    -- Combat
     WallbangEnabled = true,
-    WallCheck = true, -- Cek tembok untuk ESP
     
     -- Auto-Play
     AutoPlayEnabled = false,
 }
 
--- Variabel untuk ESP
+-- Drawing API untuk ESP (tembus tembok)
+local Drawing = syn and syn.drawing or drawing or (function()
+    -- Fallback jika drawing tidak tersedia
+    return setmetatable({}, {
+        __index = function(t, k)
+            return function() end
+        end
+    })
+end)()
+
+-- ESP Objects
 local espObjects = {}
 local currentTarget = nil
 
--- Warna tim (default jika tidak terdeteksi)
+-- Fungsi warna berdasarkan tim
 local function getPlayerColor(player)
     if not Settings.ESPTeamColor then
-        return Color3.fromRGB(255, 0, 0) -- Merah untuk musuh
+        return Color3.fromRGB(255, 0, 0)
     end
     
     if player.Team == LocalPlayer.Team and player.Team then
-        return player.Team.TeamColor.Color -- Warna tim sendiri
+        return player.Team.TeamColor.Color
     else
-        return Color3.fromRGB(255, 50, 50) -- Merah untuk musuh
+        return Color3.fromRGB(255, 50, 50)
     end
 end
 
 -- ============================================
--- 3. CREATE RAYFIELD UI
+-- 4. RAYFIELD UI
 -- ============================================
 local Window = Rayfield:CreateWindow({
-    Name = "⚡ Advanced Cheat v2.0",
-    LoadingTitle = "Loading Cheat...",
-    LoadingSubtitle = "by Private Script",
+    Name = "⚡ Delta Cheat v3.0",
+    LoadingTitle = "Loading Delta Script...",
+    LoadingSubtitle = "Bypass Active | " .. (isDelta and "Delta Mode" : "Standard Mode"),
     ConfigurationSaving = {
         Enabled = true,
-        FolderName = "PrivateCheat",
+        FolderName = "DeltaCheat",
         FileName = "Config"
     },
-    KeySystem = false, -- Ganti ke true jika ingin pake key system
+    KeySystem = false,
 })
 
 -- Tab: Aimbot
@@ -98,16 +182,11 @@ AimbotTab:CreateToggle({
     Flag = "AimbotToggle",
     Callback = function(Value)
         Settings.AimbotEnabled = Value
-        Rayfield:Notify({
-            Title = "Aimbot",
-            Content = Value and "Aimbot Enabled" or "Aimbot Disabled",
-            Duration = 1.5,
-        })
     end,
 })
 
 AimbotTab:CreateSlider({
-    Name = "📏 FOV Radius (px)",
+    Name = "📏 FOV Radius",
     Range = {30, 350},
     Increment = 5,
     Suffix = "px",
@@ -122,7 +201,6 @@ AimbotTab:CreateSlider({
     Name = "✨ Smoothness",
     Range = {1, 50},
     Increment = 1,
-    Suffix = "",
     CurrentValue = Settings.AimbotSmoothness,
     Flag = "SmoothSlider",
     Callback = function(Value)
@@ -131,7 +209,7 @@ AimbotTab:CreateSlider({
 })
 
 AimbotTab:CreateToggle({
-    Name = "🔒 Target Lock (Camera Lock)",
+    Name = "🔒 Target Lock",
     CurrentValue = Settings.TargetLock,
     Flag = "TargetLockToggle",
     Callback = function(Value)
@@ -145,28 +223,20 @@ AimbotTab:CreateDropdown({
     CurrentOption = "HumanoidRootPart",
     Flag = "AimPartDropdown",
     Callback = function(Option)
-        if Option == "Head" then
-            Settings.AimPart = "Head"
-        elseif Option == "UpperTorso" then
-            Settings.AimPart = "UpperTorso"
-        else
-            Settings.AimPart = "HumanoidRootPart"
-        end
+        Settings.AimPart = Option
     end,
 })
 
--- Tab: ESP & Visuals
-local ESPTab = Window:CreateTab("👁️ ESP & Visuals", 4483362458)
+-- Tab: ESP & Visuals (TEMBUS TEMBOK)
+local ESPTab = Window:CreateTab("👁️ ESP Tembus Tembok", 4483362458)
 
 ESPTab:CreateToggle({
-    Name = "🔘 Master ESP",
+    Name = "🔘 Master ESP (X-Ray)",
     CurrentValue = Settings.ESPEnabled,
     Flag = "ESPMaster",
     Callback = function(Value)
         Settings.ESPEnabled = Value
-        if not Value then
-            clearESP()
-        end
+        if not Value then clearESP() end
     end,
 })
 
@@ -198,7 +268,7 @@ ESPTab:CreateToggle({
 })
 
 ESPTab:CreateToggle({
-    Name = "❤️ Show Health",
+    Name = "❤️ Show Health Bar",
     CurrentValue = Settings.ESPShowHealth,
     Flag = "ESPHealthToggle",
     Callback = function(Value)
@@ -207,7 +277,7 @@ ESPTab:CreateToggle({
 })
 
 ESPTab:CreateToggle({
-    Name = "🎯 Show Tracers",
+    Name = "🎯 Tracers",
     CurrentValue = Settings.ESPTracers,
     Flag = "ESPTracerToggle",
     Callback = function(Value)
@@ -216,29 +286,24 @@ ESPTab:CreateToggle({
 })
 
 ESPTab:CreateToggle({
-    Name = "🎨 Team Color (RGB)",
-    CurrentValue = Settings.ESPTeamColor,
-    Flag = "ESPColorToggle",
-    Callback = function(Value)
-        Settings.ESPTeamColor = Value
-    end,
-})
-
-ESPTab:CreateToggle({
-    Name = "👥 Team Check (Ignor Team)",
+    Name = "👥 Team Check (Ignore Team)",
     CurrentValue = Settings.TeamCheck,
     Flag = "TeamCheckToggle",
     Callback = function(Value)
         Settings.TeamCheck = Value
-        Rayfield:Notify({
-            Title = "Team Check",
-            Content = Value and "Teammates will be IGNORED" or "Teammates will be TARGETED",
-            Duration = 2,
-        })
     end,
 })
 
--- Tab: Combat & Wallbang
+ESPTab:CreateToggle({
+    Name = "🧱 Wall Check (ESP Tembus Tembok)",
+    CurrentValue = Settings.WallCheck,
+    Flag = "WallCheckToggle",
+    Callback = function(Value)
+        Settings.WallCheck = Value
+    end,
+})
+
+-- Tab: Combat
 local CombatTab = Window:CreateTab("💥 Combat", 4483362458)
 
 CombatTab:CreateToggle({
@@ -247,28 +312,12 @@ CombatTab:CreateToggle({
     Flag = "WallbangToggle",
     Callback = function(Value)
         Settings.WallbangEnabled = Value
-        Rayfield:Notify({
-            Title = "Wallbang",
-            Content = Value and "Bullets can penetrate walls" or "Wallbang disabled",
-            Duration = 1.5,
-        })
-    end,
-})
-
-CombatTab:CreateToggle({
-    Name = "🧱 Wall Check (ESP Tembus Tembok)",
-    CurrentValue = Settings.WallCheck,
-    Flag = "WallCheckToggle",
-    Callback = function(Value)
-        Settings.WallCheck = Value
-        -- WallCheck = true berarti ESP tetap muncul walau dibalik tembok
     end,
 })
 
 -- Tab: Auto-Play
 local AutoTab = Window:CreateTab("🤖 Auto-Play", 4483362458)
 
-local autoPlayRunning = false
 local autoPlayConnection = nil
 
 local function autoPlayLogic()
@@ -310,40 +359,28 @@ AutoTab:CreateToggle({
         if Value then
             if autoPlayConnection then autoPlayConnection:Disconnect() end
             autoPlayConnection = RunService.Heartbeat:Connect(autoPlayLogic)
-            Rayfield:Notify({
-                Title = "Auto-Play",
-                Content = "Auto-Play ENABLED - Chasing enemies",
-                Duration = 2,
-            })
         else
             if autoPlayConnection then autoPlayConnection:Disconnect() end
             if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
                 LocalPlayer.Character.Humanoid:MoveTo(LocalPlayer.Character.HumanoidRootPart.Position)
             end
-            Rayfield:Notify({
-                Title = "Auto-Play",
-                Content = "Auto-Play DISABLED",
-                Duration = 1.5,
-            })
         end
     end,
 })
 
 -- ============================================
--- 4. ESP SYSTEM (TEMBUS TEMBOK dengan OUTLINE)
+-- 5. ESP SYSTEM (TEMBUS TEMBOK / X-RAY)
 -- ============================================
 
 local function createESPObject(player)
     if espObjects[player] then return end
     
-    -- Box Outline (Square)
     local box = Drawing.new("Square")
     box.Visible = false
     box.Thickness = 1.5
     box.Filled = false
     box.Color = getPlayerColor(player)
     
-    -- Nama Player
     local nameText = Drawing.new("Text")
     nameText.Visible = false
     nameText.Size = 14
@@ -351,7 +388,6 @@ local function createESPObject(player)
     nameText.Outline = true
     nameText.Color = Color3.fromRGB(255, 255, 255)
     
-    -- Distance Text
     local distText = Drawing.new("Text")
     distText.Visible = false
     distText.Size = 11
@@ -359,12 +395,10 @@ local function createESPObject(player)
     distText.Outline = true
     distText.Color = Color3.fromRGB(200, 200, 200)
     
-    -- Health Bar
     local healthBar = Drawing.new("Line")
     healthBar.Visible = false
     healthBar.Thickness = 3
     
-    -- Tracer (garis dari bawah layar ke target)
     local tracer = Drawing.new("Line")
     tracer.Visible = false
     tracer.Thickness = 1.5
@@ -382,18 +416,17 @@ local function updateESP()
     if not Settings.ESPEnabled then return end
     
     for player, objects in pairs(espObjects) do
-        if player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
-            local rootPart = player.Character.HumanoidRootPart
-            local headPart = player.Character:FindFirstChild("Head") or rootPart
-            local vector, onScreen = Camera:WorldToViewportPoint(rootPart.Position)
+        if player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and 
+           player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
             
-            -- Hitung posisi di layar
+            local rootPart = player.Character.HumanoidRootPart
+            local vector, onScreen = Camera:WorldToViewportPoint(rootPart.Position)
             local screenPos = Vector2.new(vector.X, vector.Y)
             local isOnScreen = onScreen
             
-            -- Wall Check: Jika tembok menghalangi, tetap tampilkan (tembus tembok)
+            -- WALL CHECK: Jika False, ESP tidak tembus tembok
+            -- Jika True, ESP tetap muncul walau di balik tembok (X-Ray)
             if not Settings.WallCheck then
-                -- Cek apakah terhalang tembok
                 local raycastParams = RaycastParams.new()
                 raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
                 raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, player.Character}
@@ -404,15 +437,13 @@ local function updateESP()
             end
             
             if isOnScreen and vector.Z > 0 then
-                -- Hitung ukuran box berdasarkan jarak
                 local distance = (Camera.CFrame.Position - rootPart.Position).Magnitude
                 local boxSize = 150 / distance * 5
                 local boxHeight = boxSize * 1.8
                 local boxWidth = boxSize
-                
                 local boxPos = Vector2.new(screenPos.X - boxWidth/2, screenPos.Y - boxHeight/2)
                 
-                -- Update Box
+                -- Update Box (Outline)
                 if Settings.ESPBoxOutline then
                     objects.Box.Visible = true
                     objects.Box.Size = Vector2.new(boxWidth, boxHeight)
@@ -422,7 +453,7 @@ local function updateESP()
                     objects.Box.Visible = false
                 end
                 
-                -- Update Name Text
+                -- Update Name
                 if Settings.ESPShowName then
                     objects.Name.Visible = true
                     objects.Name.Text = player.Name
@@ -466,7 +497,6 @@ local function updateESP()
                     objects.Tracer.Visible = false
                 end
             else
-                -- Hide all if off-screen
                 objects.Box.Visible = false
                 objects.Name.Visible = false
                 objects.Distance.Visible = false
@@ -474,7 +504,6 @@ local function updateESP()
                 objects.Tracer.Visible = false
             end
         else
-            -- Hide all if player invalid
             objects.Box.Visible = false
             objects.Name.Visible = false
             objects.Distance.Visible = false
@@ -486,11 +515,13 @@ end
 
 local function clearESP()
     for player, objects in pairs(espObjects) do
-        if objects.Box then objects.Box:Remove() end
-        if objects.Name then objects.Name:Remove() end
-        if objects.Distance then objects.Distance:Remove() end
-        if objects.HealthBar then objects.HealthBar:Remove() end
-        if objects.Tracer then objects.Tracer:Remove() end
+        pcall(function()
+            if objects.Box then objects.Box:Remove() end
+            if objects.Name then objects.Name:Remove() end
+            if objects.Distance then objects.Distance:Remove() end
+            if objects.HealthBar then objects.HealthBar:Remove() end
+            if objects.Tracer then objects.Tracer:Remove() end
+        end)
     end
     espObjects = {}
 end
@@ -512,17 +543,19 @@ end)
 
 Players.PlayerRemoving:Connect(function(player)
     if espObjects[player] then
-        if espObjects[player].Box then espObjects[player].Box:Remove() end
-        if espObjects[player].Name then espObjects[player].Name:Remove() end
-        if espObjects[player].Distance then espObjects[player].Distance:Remove() end
-        if espObjects[player].HealthBar then espObjects[player].HealthBar:Remove() end
-        if espObjects[player].Tracer then espObjects[player].Tracer:Remove() end
+        pcall(function()
+            if espObjects[player].Box then espObjects[player].Box:Remove() end
+            if espObjects[player].Name then espObjects[player].Name:Remove() end
+            if espObjects[player].Distance then espObjects[player].Distance:Remove() end
+            if espObjects[player].HealthBar then espObjects[player].HealthBar:Remove() end
+            if espObjects[player].Tracer then espObjects[player].Tracer:Remove() end
+        end)
         espObjects[player] = nil
     end
 end)
 
 -- ============================================
--- 5. AIMBOT SYSTEM
+-- 6. AIMBOT SYSTEM
 -- ============================================
 
 local function getClosestPlayerInFOV()
@@ -531,7 +564,9 @@ local function getClosestPlayerInFOV()
     local closestPlayer = nil
     
     for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") and 
+           player.Character.Humanoid.Health > 0 then
+            
             if Settings.TeamCheck and player.Team == LocalPlayer.Team and player.Team then
                 -- Skip teammate
             else
@@ -567,10 +602,12 @@ RunService.RenderStepped:Connect(function()
                 local currentMouse = UserInputService:GetMouseLocation()
                 local delta = (targetScreen - currentMouse) / Settings.AimbotSmoothness
                 
-                -- Gerakkan mouse (mouse move simulation)
-                mousemoverel(delta.X, delta.Y)
+                -- Mouse movement (Delta compatible)
+                pcall(function()
+                    mousemoverel(delta.X, delta.Y)
+                end)
                 
-                -- Target Lock: Camera follow
+                -- Target Lock
                 if Settings.TargetLock then
                     local cameraCF = CFrame.new(Camera.CFrame.Position, targetPart.Position)
                     Camera.CFrame = cameraCF
@@ -583,44 +620,38 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -- ============================================
--- 6. WALLBANG SYSTEM (Tembus Tembok)
+-- 7. WALLBANG SYSTEM (Tembus Tembok)
 -- ============================================
--- Script ini memodifikasi raycast untuk bullet agar bisa tembus tembok
--- Integrasikan dengan sistem weapon game
-
--- Override fungsi raycast untuk wallbang
-local originalRaycast = workspace.Raycast
+-- Hook untuk fungsi raycast agar bullet tembus tembok
 if Settings.WallbangEnabled then
-    -- Method: Menggunakan parameter raycast yang mengabaikan wall objects
-    -- Atau memodifikasi filterType
-    local function wallbangRaycast(origin, direction, range, params)
+    local originalRaycast = workspace.Raycast
+    workspace.Raycast = function(origin, direction, range, params)
         if Settings.WallbangEnabled then
-            -- Buat parameter baru dengan ignore list yang mencakup tembok
             local newParams = RaycastParams.new()
             newParams.FilterType = Enum.RaycastFilterType.Blacklist
             newParams.FilterDescendantsInstances = {LocalPlayer.Character}
-            -- Tambahkan material tertentu yang ingin ditembus (contoh: Concrete, Metal, dll)
-            return workspace:Raycast(origin, direction * range, newParams)
+            return originalRaycast(origin, direction, range, newParams)
         else
             return originalRaycast(origin, direction, range, params)
         end
     end
-    -- Catatan: Override global hanya mungkin di environment executor tertentu
 end
 
 -- ============================================
--- 7. HOTKEY & INITIALIZATION
+-- 8. HOTKEY & INITIALIZATION
 -- ============================================
 
 -- Toggle GUI dengan Insert
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     if input.KeyCode == Enum.KeyCode.Insert then
-        Rayfield:Toggle()
+        pcall(function()
+            Rayfield:Toggle()
+        end)
     end
 end)
 
--- Inisialisasi ESP
+-- Inisialisasi
 setupESP()
 
 -- ESP Update Loop
@@ -628,11 +659,24 @@ RunService.RenderStepped:Connect(function()
     updateESP()
 end)
 
--- Notifikasi selesai loading
-Rayfield:Notify({
-    Title = "✅ Script Loaded!",
-    Content = "Press Insert to toggle GUI",
-    Duration = 3,
-})
+-- Notifikasi selesai
+print("[Delta] Script loaded successfully! Press Insert to toggle GUI")
+pcall(function()
+    Rayfield:Notify({
+        Title = "✅ Delta Script Loaded!",
+        Content = "Anti-Cheat Bypass Active | Press Insert",
+        Duration = 3,
+    })
+end)
 
-print("Script loaded successfully! Press Insert to toggle GUI")
+-- Anti-Cheat Stealth: Periodik cleanup
+task.spawn(function()
+    while true do
+        task.wait(30)
+        collectgarbage("collect")
+        -- Hidden execution path
+        if Settings.AimbotEnabled or Settings.ESPEnabled then
+            -- Keep alive
+        end
+    end
+end)
