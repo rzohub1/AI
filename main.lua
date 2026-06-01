@@ -1,25 +1,20 @@
--- Mobile Aimbot + ESP Script - Delta Executor Compatible
--- Fixed version - tested for mobile
+-- ================================
+-- MOBILE AIMBOT + ESP SCRIPT
+-- Untuk Delta Executor (Mobile/HP)
+-- Langsung pakai, tanpa perlu update
+-- ================================
 
--- Load Rayfield dengan benar
-local RayfieldLoaded, Rayfield = pcall(function()
-    return loadstring(game:HttpGet("https://raw.githubusercontent.com/shlexware/Rayfield/main/source"))()
-end)
+-- Load Rayfield Library
+local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/shlexware/Rayfield/main/source'))()
 
-if not RayfieldLoaded then
-    game:GetService("StarterGui"):SetCore("SendNotification", {
-        Title = "Error",
-        Text = "Failed to load Rayfield! Check connection.",
-        Duration = 5
-    })
-    return
-end
-
--- Create Window
+-- Buat Window UI
 local Window = Rayfield:CreateWindow({
     Name = "Mobile Aimbot + ESP",
-    LoadingTitle = "Loading...",
-    LoadingSubtitle = "By Script",
+    LoadingTitle = "Loading Script...",
+    LoadingSubtitle = "Private Test Environment",
+    ShowText = "MENU",  -- Tombol untuk show/hide UI di mobile
+    Theme = "Default",
+    ToggleUIKeybind = "K",
     ConfigurationSaving = {
         Enabled = true,
         FolderName = "MobileAimScript",
@@ -28,12 +23,14 @@ local Window = Rayfield:CreateWindow({
     KeySystem = false
 })
 
--- Tabs
-local MainTab = Window:CreateTab("Aimbot", 4483362458)
-local EspTab = Window:CreateTab("ESP", 4483362458)
-local SettingsTab = Window:CreateTab("Settings", 4483362458)
+-- Tab-tab
+local MainTab = Window:CreateTab("Aimbot", nil)
+local EspTab = Window:CreateTab("ESP", nil)
+local SettingsTab = Window:CreateTab("Settings", nil)
 
--- Variables
+-- ================================
+-- VARIABLES
+-- ================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -51,26 +48,15 @@ local OutlineESP = false
 
 local currentTarget = nil
 
--- Mobile touch aim simulation (replaces mousemoverel for mobile)
-local function MoveAim(deltaX, deltaY)
-    -- For mobile, we use viewport center as reference
-    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-    local newPosition = center + Vector2.new(deltaX, deltaY)
-    
-    -- Simulate mouse movement for aimbot on mobile
-    -- Some executors support this, otherwise just visual
-    pcall(function()
-        mousemoveabs(newPosition.X, newPosition.Y)
-    end)
-end
+-- ================================
+-- AIMBOT CORE (Mobile Compatible)
+-- ================================
 
--- Get closest player to crosshair
+-- Dapatkan pemain terdekat dari crosshair
 local function GetClosestPlayer()
     local closest = nil
     local shortestDist = FOV
     local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-    
-    if not center then return nil end
     
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
@@ -83,7 +69,7 @@ local function GetClosestPlayer()
                     if dist < shortestDist then
                         if WallCheck then
                             local ray = Ray.new(Camera.CFrame.Position, (part.Position - Camera.CFrame.Position).Unit * 1000)
-                            local hit, position = workspace:FindPartOnRay(ray, LocalPlayer.Character)
+                            local hit = workspace:FindPartOnRay(ray, LocalPlayer.Character)
                             if hit and hit:IsDescendantOf(player.Character) then
                                 closest = player
                                 shortestDist = dist
@@ -103,7 +89,14 @@ local function GetClosestPlayer()
     return closest
 end
 
--- Aimbot main loop (mobile friendly)
+-- Fungsi aim untuk mobile (menggunakan mousemoverel jika support)
+local function MoveAim(deltaX, deltaY)
+    pcall(function()
+        mousemoverel(deltaX, deltaY)
+    end)
+end
+
+-- Loop Aimbot
 local function AimbotLoop()
     if not AimbotEnabled then return end
     
@@ -129,8 +122,11 @@ local function AimbotLoop()
     end
 end
 
--- ESP Creation (Outline tembus pandang)
-local espConnections = {}
+-- ================================
+-- ESP CORE (Outline Tembus Pandang)
+-- ================================
+
+local espHighlights = {}
 
 local function CreateESP(player)
     if not ESPEnabled or player == LocalPlayer then return end
@@ -143,7 +139,8 @@ local function CreateESP(player)
         highlight.FillTransparency = 0.6
         highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
         highlight.OutlineTransparency = 0.3
-        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop -- Makes outline visible through walls
+        -- INI YANG MEMBUAT OUTLINE TEMBUS PANDANG
+        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
         highlight.Adornee = char
         highlight.Parent = char
         
@@ -171,31 +168,30 @@ local function CreateESP(player)
         else
             highlight.OutlineTransparency = 1
         end
+        
+        espHighlights[player] = highlight
     end
     
     if player.Character then
         addESP(player.Character)
     end
     
-    local conn
-    conn = player.CharacterAdded:Connect(addESP)
-    table.insert(espConnections, {player = player, connection = conn})
+    player.CharacterAdded:Connect(function(char)
+        task.wait(0.5)
+        addESP(char)
+    end)
 end
 
 local function RemoveESP(player)
+    if espHighlights[player] then
+        espHighlights[player]:Destroy()
+        espHighlights[player] = nil
+    end
     if player.Character then
         for _, child in ipairs(player.Character:GetChildren()) do
             if child:IsA("Highlight") or child.Name == "ESP_Name" then
                 child:Destroy()
             end
-        end
-    end
-    
-    for i, data in ipairs(espConnections) do
-        if data.player == player then
-            data.connection:Disconnect()
-            table.remove(espConnections, i)
-            break
         end
     end
 end
@@ -211,10 +207,13 @@ local function RefreshAllESP()
     end
 end
 
--- Player connections
+-- ================================
+-- PLAYER EVENT HANDLERS
+-- ================================
 Players.PlayerAdded:Connect(function(player)
     player.CharacterAdded:Connect(function()
         if ESPEnabled then
+            task.wait(0.5)
             CreateESP(player)
         end
     end)
@@ -225,7 +224,11 @@ end)
 
 Players.PlayerRemoving:Connect(RemoveESP)
 
--- UI Elements
+-- ================================
+-- UI ELEMENTS
+-- ================================
+
+-- Aimbot Tab
 MainTab:CreateToggle({
     Name = "Enable Aimbot",
     CurrentValue = false,
@@ -279,6 +282,7 @@ MainTab:CreateToggle({
     end
 })
 
+-- ESP Tab
 EspTab:CreateToggle({
     Name = "Enable ESP",
     CurrentValue = false,
@@ -299,30 +303,23 @@ EspTab:CreateToggle({
     end
 })
 
+-- Settings Tab
 SettingsTab:CreateButton({
     Name = "Destroy UI",
     Callback = function()
-        for _, data in ipairs(espConnections) do
-            data.connection:Disconnect()
-        end
         Rayfield:Destroy()
     end
 })
 
--- Main loop
+-- ================================
+-- START LOOP
+-- ================================
 RunService.RenderStepped:Connect(AimbotLoop)
 
--- Success notification
-game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "Loaded Successfully",
-    Text = "Mobile Aimbot + ESP Ready! Use the UI to toggle features.",
-    Duration = 4
-})
-
--- Show UI instructions for mobile
+-- Notifikasi sukses
 task.wait(1)
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "Mobile Users",
-    Text = "Tap the Rayfield button on screen to show/hide UI",
+    Title = "✅ Script Loaded!",
+    Text = "Mobile Aimbot + ESP siap digunakan. Tap tombol 'MENU' di layar untuk buka UI.",
     Duration = 5
 })
