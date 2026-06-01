@@ -1,86 +1,65 @@
--- ================================
--- MOBILE AIMBOT + ESP SCRIPT
--- Untuk Delta Executor (Mobile/HP)
--- Langsung pakai, tanpa perlu update
--- ================================
+-- Rayfield Aimbot + ESP (Mobile Optimized for Delta Executor)
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
--- Load Rayfield Library
-local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/shlexware/Rayfield/main/source'))()
-
--- Buat Window UI
 local Window = Rayfield:CreateWindow({
-    Name = "Mobile Aimbot + ESP",
-    LoadingTitle = "Loading Script...",
-    LoadingSubtitle = "Private Test Environment",
-    ShowText = "MENU",  -- Tombol untuk show/hide UI di mobile
-    Theme = "Default",
-    ToggleUIKeybind = "K",
+    Name = "Simple Aimbot + ESP",
+    LoadingTitle = "Loading UI...",
+    LoadingSubtitle = "Private Test",
     ConfigurationSaving = {
         Enabled = true,
-        FolderName = "MobileAimScript",
-        FileName = "Settings"
+        FolderName = "SimpleHub",
+        FileName = "Config"
     },
-    KeySystem = false
+    Discord = {
+        Enabled = false
+    }
 })
 
--- Tab-tab
-local MainTab = Window:CreateTab("Aimbot", nil)
-local EspTab = Window:CreateTab("ESP", nil)
-local SettingsTab = Window:CreateTab("Settings", nil)
+local MainTab = Window:CreateTab("Main", 4483362458)
+local AimTab = Window:CreateTab("Aimbot", 4483362458)
+local EspTab = Window:CreateTab("ESP", 4483362458)
 
--- ================================
--- VARIABLES
--- ================================
+-- Variables
+local AimbotEnabled = false
+local ESPEnabled = false
+local WallCheck = true
+local TargetLock = false
+local FOV = 150
+local Smoothness = 0.5
+local CurrentTarget = nil
+
+-- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
--- Settings
-local AimbotEnabled = false
-local TargetLock = false
-local FOV = 200
-local Smoothness = 5
-local WallCheck = true
-local ESPEnabled = false
-local OutlineESP = false
-
-local currentTarget = nil
-
--- ================================
--- AIMBOT CORE (Mobile Compatible)
--- ================================
-
--- Dapatkan pemain terdekat dari crosshair
+-- Simple Aimbot Function
 local function GetClosestPlayer()
     local closest = nil
-    local shortestDist = FOV
-    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local shortestDistance = FOV
     
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Head") then
             local humanoid = player.Character:FindFirstChild("Humanoid")
             if humanoid and humanoid.Health > 0 then
-                local part = player.Character.HumanoidRootPart
-                local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
-                if onScreen then
-                    local dist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
-                    if dist < shortestDist then
-                        if WallCheck then
-                            local ray = Ray.new(Camera.CFrame.Position, (part.Position - Camera.CFrame.Position).Unit * 1000)
-                            local hit = workspace:FindPartOnRay(ray, LocalPlayer.Character)
-                            if hit and hit:IsDescendantOf(player.Character) then
-                                closest = player
-                                shortestDist = dist
-                            elseif not hit then
-                                closest = player
-                                shortestDist = dist
-                            end
-                        else
+                
+                local screenPos, onScreen = Camera:WorldToViewportPoint(player.Character.Head.Position)
+                local distance = (Vector2.new(screenPos.X, screenPos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+                
+                if onScreen and distance < shortestDistance then
+                    -- Wall Check
+                    if WallCheck then
+                        local ray = Ray.new(Camera.CFrame.Position, (player.Character.Head.Position - Camera.CFrame.Position).Unit * 500)
+                        local hit, _ = workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character})
+                        if hit and hit:IsDescendantOf(player.Character) then
+                            shortestDistance = distance
                             closest = player
-                            shortestDist = dist
                         end
+                    else
+                        shortestDistance = distance
+                        closest = player
                     end
                 end
             end
@@ -89,237 +68,134 @@ local function GetClosestPlayer()
     return closest
 end
 
--- Fungsi aim untuk mobile (menggunakan mousemoverel jika support)
-local function MoveAim(deltaX, deltaY)
-    pcall(function()
-        mousemoverel(deltaX, deltaY)
-    end)
-end
-
--- Loop Aimbot
-local function AimbotLoop()
+-- Aimbot Loop
+RunService.RenderStepped:Connect(function()
     if not AimbotEnabled then return end
     
-    if TargetLock and currentTarget then
-        if currentTarget.Character and currentTarget.Character:FindFirstChild("HumanoidRootPart") then
-            local targetPart = currentTarget.Character.HumanoidRootPart
-            local targetScreen = Camera:WorldToViewportPoint(targetPart.Position)
-            if targetScreen.Z > 0 then
-                local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-                local delta = Vector2.new(targetScreen.X, targetScreen.Y) - center
-                if delta.Magnitude > 5 then
-                    local smoothDelta = delta / Smoothness
-                    MoveAim(smoothDelta.X, smoothDelta.Y)
-                end
-            else
-                currentTarget = nil
-            end
-        else
-            currentTarget = nil
-        end
-    elseif not TargetLock then
-        currentTarget = GetClosestPlayer()
-    end
-end
-
--- ================================
--- ESP CORE (Outline Tembus Pandang)
--- ================================
-
-local espHighlights = {}
-
-local function CreateESP(player)
-    if not ESPEnabled or player == LocalPlayer then return end
+    CurrentTarget = GetClosestPlayer()
     
-    local function addESP(char)
-        if not char or char:FindFirstChildWhichIsA("Highlight") then return end
+    if CurrentTarget and CurrentTarget.Character and CurrentTarget.Character:FindFirstChild("Head") then
+        local targetPos = CurrentTarget.Character.Head.Position
+        local direction = (targetPos - Camera.CFrame.Position).Unit
         
-        local highlight = Instance.new("Highlight")
-        highlight.FillColor = Color3.fromRGB(255, 50, 50)
-        highlight.FillTransparency = 0.6
-        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-        highlight.OutlineTransparency = 0.3
-        -- INI YANG MEMBUAT OUTLINE TEMBUS PANDANG
-        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-        highlight.Adornee = char
-        highlight.Parent = char
-        
-        -- Name tag
-        local billboard = Instance.new("BillboardGui")
-        billboard.Name = "ESP_Name"
-        billboard.Size = UDim2.new(0, 120, 0, 30)
-        billboard.StudsOffset = Vector3.new(0, 2.5, 0)
-        billboard.AlwaysOnTop = true
-        billboard.Parent = char
-        
-        local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(1, 0, 1, 0)
-        label.BackgroundTransparency = 1
-        label.Text = player.Name
-        label.TextColor3 = Color3.fromRGB(255, 255, 255)
-        label.TextStrokeTransparency = 0
-        label.TextScaled = true
-        label.Font = Enum.Font.GothamBold
-        label.Parent = billboard
-        
-        if OutlineESP then
-            highlight.OutlineTransparency = 0
-            highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-        else
-            highlight.OutlineTransparency = 1
-        end
-        
-        espHighlights[player] = highlight
-    end
-    
-    if player.Character then
-        addESP(player.Character)
-    end
-    
-    player.CharacterAdded:Connect(function(char)
-        task.wait(0.5)
-        addESP(char)
-    end)
-end
-
-local function RemoveESP(player)
-    if espHighlights[player] then
-        espHighlights[player]:Destroy()
-        espHighlights[player] = nil
-    end
-    if player.Character then
-        for _, child in ipairs(player.Character:GetChildren()) do
-            if child:IsA("Highlight") or child.Name == "ESP_Name" then
-                child:Destroy()
-            end
-        end
-    end
-end
-
-local function RefreshAllESP()
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then
-            RemoveESP(player)
-            if ESPEnabled then
-                CreateESP(player)
-            end
-        end
-    end
-end
-
--- ================================
--- PLAYER EVENT HANDLERS
--- ================================
-Players.PlayerAdded:Connect(function(player)
-    player.CharacterAdded:Connect(function()
-        if ESPEnabled then
-            task.wait(0.5)
-            CreateESP(player)
-        end
-    end)
-    if ESPEnabled then
-        CreateESP(player)
+        local smoothCFrame = Camera.CFrame:Lerp(CFrame.lookAt(Camera.CFrame.Position, targetPos), Smoothness)
+        Camera.CFrame = smoothCFrame
     end
 end)
 
-Players.PlayerRemoving:Connect(RemoveESP)
-
--- ================================
--- UI ELEMENTS
--- ================================
-
--- Aimbot Tab
+-- === MAIN TAB ===
 MainTab:CreateToggle({
-    Name = "Enable Aimbot",
+    Name = "Aimbot Toggle",
     CurrentValue = false,
     Flag = "AimbotToggle",
-    Callback = function(value)
-        AimbotEnabled = value
-        if not value then currentTarget = nil end
-    end
+    Callback = function(Value)
+        AimbotEnabled = Value
+    end,
 })
 
 MainTab:CreateToggle({
-    Name = "Target Lock",
+    Name = "ESP Toggle",
     CurrentValue = false,
-    Flag = "TargetLock",
-    Callback = function(value)
-        TargetLock = value
-        if not value then currentTarget = nil end
-    end
+    Flag = "ESPToggle",
+    Callback = function(Value)
+        ESPEnabled = Value
+        -- ESP logic di bawah
+    end,
 })
 
-MainTab:CreateSlider({
-    Name = "Aimbot FOV",
+-- === AIMBOT TAB ===
+AimTab:CreateSlider({
+    Name = "FOV",
     Range = {50, 500},
     Increment = 10,
-    Suffix = "px",
-    CurrentValue = 200,
+    CurrentValue = FOV,
     Flag = "FOVSlider",
-    Callback = function(value)
-        FOV = value
-    end
+    Callback = function(Value)
+        FOV = Value
+    end,
 })
 
-MainTab:CreateSlider({
+AimTab:CreateSlider({
     Name = "Smoothness",
-    Range = {1, 15},
-    Increment = 1,
-    Suffix = "",
-    CurrentValue = 5,
+    Range = {0.1, 1},
+    Increment = 0.05,
+    CurrentValue = Smoothness,
     Flag = "SmoothSlider",
-    Callback = function(value)
-        Smoothness = value
-    end
+    Callback = function(Value)
+        Smoothness = Value
+    end,
 })
 
-MainTab:CreateToggle({
+AimTab:CreateToggle({
     Name = "Wall Check",
     CurrentValue = true,
     Flag = "WallCheck",
-    Callback = function(value)
-        WallCheck = value
-    end
+    Callback = function(Value)
+        WallCheck = Value
+    end,
 })
 
--- ESP Tab
+AimTab:CreateToggle({
+    Name = "Target Lock (Hold)",
+    CurrentValue = false,
+    Flag = "TargetLock",
+    Callback = function(Value)
+        TargetLock = Value
+    end,
+})
+
+-- === ESP TAB ===
+local function CreateESP(player)
+    if player == LocalPlayer then return end
+    
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "SimpleESP"
+    highlight.FillTransparency = 0.7
+    highlight.OutlineTransparency = 0.1  -- tembus pandang (outline)
+    highlight.OutlineColor = Color3.fromRGB(255, 0, 0)
+    highlight.FillColor = Color3.fromRGB(0, 255, 255)
+    highlight.Adornee = player.Character
+    highlight.Parent = player.Character
+    
+    -- Destroy saat mati
+    player.CharacterAdded:Connect(function(char)
+        highlight.Adornee = char
+    end)
+end
+
 EspTab:CreateToggle({
     Name = "Enable ESP",
     CurrentValue = false,
-    Flag = "ESPToggle",
-    Callback = function(value)
-        ESPEnabled = value
-        RefreshAllESP()
-    end
+    Flag = "ESP",
+    Callback = function(Value)
+        ESPEnabled = Value
+        if Value then
+            for _, player in pairs(Players:GetPlayers()) do
+                if player.Character then
+                    CreateESP(player)
+                end
+                player.CharacterAdded:Connect(function() 
+                    if ESPEnabled then CreateESP(player) end
+                end)
+            end
+        else
+            for _, player in pairs(Players:GetPlayers()) do
+                if player.Character and player.Character:FindFirstChild("SimpleESP") then
+                    player.Character.SimpleESP:Destroy()
+                end
+            end
+        end
+    end,
 })
 
-EspTab:CreateToggle({
-    Name = "Outline Tembus Pandang",
-    CurrentValue = false,
-    Flag = "OutlineESP",
-    Callback = function(value)
-        OutlineESP = value
-        RefreshAllESP()
-    end
+EspTab:CreateParagraph({
+    Title = "Note",
+    Content = "Outline tembus pandang sudah diatur (Transparency 0.1)"
 })
 
--- Settings Tab
-SettingsTab:CreateButton({
-    Name = "Destroy UI",
-    Callback = function()
-        Rayfield:Destroy()
-    end
-})
-
--- ================================
--- START LOOP
--- ================================
-RunService.RenderStepped:Connect(AimbotLoop)
-
--- Notifikasi sukses
-task.wait(1)
-game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "✅ Script Loaded!",
-    Text = "Mobile Aimbot + ESP siap digunakan. Tap tombol 'MENU' di layar untuk buka UI.",
-    Duration = 5
+Rayfield:Notify({
+    Title = "Script Loaded",
+    Content = "Selamat testing di private server!",
+    Duration = 6,
+    Image = 4483362458
 })
