@@ -1,272 +1,579 @@
 --[[
-    ADVANCED AIMBOT + AUTO-PLAY UI
-    Place this script in a ScreenGui (or create the GUI via script)
-    All settings are saved between sessions using StringValues for easy toggling.
+    ⚡ ADVANCED AIMBOT + ESP + WALLBANG SCRIPT ⚡
+    Menggunakan Rayfield UI Library
+    Fitur: ESP Outline Tembus Tembok | Wallbang | Aimbot | Auto-Play | Team Check
+    
+    Cara penggunaan:
+    1. Copy seluruh script ini
+    2. Paste di executor (Synapse X, Krnl, dll)
+    3. Execute
+    4. Tekan tombol Insert untuk toggle GUI
 ]]
 
+-- ============================================
+-- 1. LOAD RAYFIELD LIBRARY
+-- ============================================
+getgenv().SecureMode = true -- Mengurangi kemungkinan deteksi
+
+local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/shlexware/Rayfield/main/source'))()
+
+-- ============================================
+-- 2. VARIABLES & SERVICES
+-- ============================================
 local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
-local Mouse = LocalPlayer:GetMouse()
+local Camera = workspace.CurrentCamera
 
--- --------------------------------
--- 1. CREATE MAIN UI FRAME
--- --------------------------------
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "AimbotGUI"
-screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+-- Drawing API untuk ESP (agar tembus tembok)
+local Drawing = Drawing or require(game:GetService("Players").LocalPlayer.PlayerScripts:WaitForChild("Drawing"))
 
-local mainFrame = Instance.new("Frame")
-mainFrame.Name = "MainFrame"
-mainFrame.Size = UDim2.new(0, 320, 0, 420)
-mainFrame.Position = UDim2.new(0.5, -160, 0.5, -210)
-mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
-mainFrame.BackgroundTransparency = 0.05
-mainFrame.BorderSizePixel = 0
-mainFrame.ClipsDescendants = true
-mainFrame.Parent = screenGui
+-- Settings
+local Settings = {
+    -- Aimbot
+    AimbotEnabled = true,
+    AimbotFOV = 150,
+    AimbotSmoothness = 10,
+    TargetLock = false,
+    AimPart = "HumanoidRootPart",
+    
+    -- ESP
+    ESPEnabled = true,
+    ESPBoxOutline = true,
+    ESPShowName = true,
+    ESPShowDistance = true,
+    ESPShowHealth = true,
+    ESPTracers = true,
+    ESPTeamColor = true,
+    TeamCheck = true,
+    
+    -- Wallbang
+    WallbangEnabled = true,
+    WallCheck = true, -- Cek tembok untuk ESP
+    
+    -- Auto-Play
+    AutoPlayEnabled = false,
+}
 
--- Rounded corners via UICorner
-local uiCorner = Instance.new("UICorner")
-uiCorner.CornerRadius = UDim.new(0, 12)
-uiCorner.Parent = mainFrame
+-- Variabel untuk ESP
+local espObjects = {}
+local currentTarget = nil
 
--- Drag functionality
-local dragging = false
-local dragStart, startPos
-
-mainFrame.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
-        dragStart = input.Position
-        startPos = mainFrame.Position
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
-        end)
+-- Warna tim (default jika tidak terdeteksi)
+local function getPlayerColor(player)
+    if not Settings.ESPTeamColor then
+        return Color3.fromRGB(255, 0, 0) -- Merah untuk musuh
     end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-        local delta = input.Position - dragStart
-        mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    
+    if player.Team == LocalPlayer.Team and player.Team then
+        return player.Team.TeamColor.Color -- Warna tim sendiri
+    else
+        return Color3.fromRGB(255, 50, 50) -- Merah untuk musuh
     end
-end)
-
--- Title Bar
-local titleBar = Instance.new("TextLabel")
-titleBar.Size = UDim2.new(1, 0, 0, 35)
-titleBar.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
-titleBar.Text = "⚡ PRIVATE CHEAT v1.0"
-titleBar.TextColor3 = Color3.fromRGB(255, 255, 255)
-titleBar.TextSize = 18
-titleBar.Font = Enum.Font.GothamBold
-titleBar.BorderSizePixel = 0
-titleBar.Parent = mainFrame
-
-local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0, 40, 0, 35)
-closeBtn.Position = UDim2.new(1, -40, 0, 0)
-closeBtn.Text = "✕"
-closeBtn.TextSize = 22
-closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-closeBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-closeBtn.BorderSizePixel = 0
-closeBtn.Parent = titleBar
-closeBtn.MouseButton1Click:Connect(function()
-    mainFrame.Visible = not mainFrame.Visible
-end)
-
--- Minimize/open button (toggle visibility using hotkey: INSERT)
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    if input.KeyCode == Enum.KeyCode.Insert then
-        mainFrame.Visible = not mainFrame.Visible
-    end
-end)
-
--- --------------------------------
--- 2. CREATE UI ELEMENTS
--- --------------------------------
-local function createToggle(parent, text, yOffset, defaultValue)
-    local container = Instance.new("Frame")
-    container.Size = UDim2.new(1, -20, 0, 45)
-    container.Position = UDim2.new(0, 10, 0, yOffset)
-    container.BackgroundTransparency = 1
-    container.Parent = parent
-
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0.6, 0, 1, 0)
-    label.Text = text
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.BackgroundTransparency = 1
-    label.TextColor3 = Color3.fromRGB(220, 220, 220)
-    label.TextSize = 16
-    label.Font = Enum.Font.Gotham
-    label.Parent = container
-
-    local toggleBtn = Instance.new("TextButton")
-    toggleBtn.Size = UDim2.new(0, 70, 0, 30)
-    toggleBtn.Position = UDim2.new(0.85, -70, 0.5, -15)
-    toggleBtn.Text = defaultValue and "ON" or "OFF"
-    toggleBtn.TextColor3 = Color3.fromRGB(255,255,255)
-    toggleBtn.BackgroundColor3 = defaultValue and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(150, 50, 50)
-    toggleBtn.BorderSizePixel = 0
-    toggleBtn.Font = Enum.Font.GothamBold
-    toggleBtn.Parent = container
-
-    local state = defaultValue
-    toggleBtn.MouseButton1Click:Connect(function()
-        state = not state
-        toggleBtn.Text = state and "ON" or "OFF"
-        toggleBtn.BackgroundColor3 = state and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(150, 50, 50)
-    end)
-
-    return function() return state end
 end
 
-local function createSlider(parent, text, minVal, maxVal, defaultVal, yOffset, formatFunc)
-    local container = Instance.new("Frame")
-    container.Size = UDim2.new(1, -20, 0, 65)
-    container.Position = UDim2.new(0, 10, 0, yOffset)
-    container.BackgroundTransparency = 1
-    container.Parent = parent
+-- ============================================
+-- 3. CREATE RAYFIELD UI
+-- ============================================
+local Window = Rayfield:CreateWindow({
+    Name = "⚡ Advanced Cheat v2.0",
+    LoadingTitle = "Loading Cheat...",
+    LoadingSubtitle = "by Private Script",
+    ConfigurationSaving = {
+        Enabled = true,
+        FolderName = "PrivateCheat",
+        FileName = "Config"
+    },
+    KeySystem = false, -- Ganti ke true jika ingin pake key system
+})
 
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, 0, 0, 20)
-    label.Text = text .. ": " .. tostring(defaultVal)
-    label.BackgroundTransparency = 1
-    label.TextColor3 = Color3.fromRGB(220,220,220)
-    label.TextSize = 15
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Parent = container
+-- Tab: Aimbot
+local AimbotTab = Window:CreateTab("🎯 Aimbot", 4483362458)
 
-    local slider = Instance.new("Frame")
-    slider.Size = UDim2.new(1, -20, 0, 6)
-    slider.Position = UDim2.new(0, 10, 0, 30)
-    slider.BackgroundColor3 = Color3.fromRGB(70,70,80)
-    slider.BorderSizePixel = 0
-    slider.Parent = container
+AimbotTab:CreateToggle({
+    Name = "🔫 Aimbot",
+    CurrentValue = Settings.AimbotEnabled,
+    Flag = "AimbotToggle",
+    Callback = function(Value)
+        Settings.AimbotEnabled = Value
+        Rayfield:Notify({
+            Title = "Aimbot",
+            Content = Value and "Aimbot Enabled" or "Aimbot Disabled",
+            Duration = 1.5,
+        })
+    end,
+})
 
-    local fill = Instance.new("Frame")
-    fill.Size = UDim2.new((defaultVal - minVal)/(maxVal - minVal), 0, 1, 0)
-    fill.BackgroundColor3 = Color3.fromRGB(100, 150, 255)
-    fill.BorderSizePixel = 0
-    fill.Parent = slider
+AimbotTab:CreateSlider({
+    Name = "📏 FOV Radius (px)",
+    Range = {30, 350},
+    Increment = 5,
+    Suffix = "px",
+    CurrentValue = Settings.AimbotFOV,
+    Flag = "FOVSlider",
+    Callback = function(Value)
+        Settings.AimbotFOV = Value
+    end,
+})
 
-    local value = defaultVal
-    local dragging = false
+AimbotTab:CreateSlider({
+    Name = "✨ Smoothness",
+    Range = {1, 50},
+    Increment = 1,
+    Suffix = "",
+    CurrentValue = Settings.AimbotSmoothness,
+    Flag = "SmoothSlider",
+    Callback = function(Value)
+        Settings.AimbotSmoothness = Value
+    end,
+})
 
-    local updateLabel = function()
-        local display = formatFunc and formatFunc(value) or tostring(math.floor(value * 10) / 10)
-        label.Text = text .. ": " .. display
-        fill.Size = UDim2.new((value - minVal)/(maxVal - minVal), 0, 1, 0)
-    end
+AimbotTab:CreateToggle({
+    Name = "🔒 Target Lock (Camera Lock)",
+    CurrentValue = Settings.TargetLock,
+    Flag = "TargetLockToggle",
+    Callback = function(Value)
+        Settings.TargetLock = Value
+    end,
+})
 
-    slider.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true
+AimbotTab:CreateDropdown({
+    Name = "🎯 Aim Part",
+    Options = {"Head", "HumanoidRootPart", "UpperTorso"},
+    CurrentOption = "HumanoidRootPart",
+    Flag = "AimPartDropdown",
+    Callback = function(Option)
+        if Option == "Head" then
+            Settings.AimPart = "Head"
+        elseif Option == "UpperTorso" then
+            Settings.AimPart = "UpperTorso"
+        else
+            Settings.AimPart = "HumanoidRootPart"
         end
-    end)
+    end,
+})
 
-    slider.InputEnded:Connect(function()
-        dragging = false
-    end)
+-- Tab: ESP & Visuals
+local ESPTab = Window:CreateTab("👁️ ESP & Visuals", 4483362458)
 
-    slider.MouseMoved:Connect(function()
-        if dragging then
-            local mousePos = UserInputService:GetMouseLocation()
-            local relX = mousePos.X - slider.AbsolutePosition.X
-            local newVal = math.clamp((relX / slider.AbsoluteSize.X) * (maxVal - minVal) + minVal, minVal, maxVal)
-            value = newVal
-            updateLabel()
+ESPTab:CreateToggle({
+    Name = "🔘 Master ESP",
+    CurrentValue = Settings.ESPEnabled,
+    Flag = "ESPMaster",
+    Callback = function(Value)
+        Settings.ESPEnabled = Value
+        if not Value then
+            clearESP()
         end
-    end)
+    end,
+})
 
-    updateLabel()
-    return function() return value end
-end
+ESPTab:CreateToggle({
+    Name = "📦 Box Outline (Tembus Tembok)",
+    CurrentValue = Settings.ESPBoxOutline,
+    Flag = "ESPBoxToggle",
+    Callback = function(Value)
+        Settings.ESPBoxOutline = Value
+    end,
+})
 
--- Build UI
-local toggleAimbot = createToggle(mainFrame, "🔫 AIMBOT", 50, true)
-local toggleTargetLock = createToggle(mainFrame, "🔒 TARGET LOCK", 105, false)
-local fovSlider = createSlider(mainFrame, "FOV", 30, 300, 120, 170, function(v) return math.floor(v) .. "px" end)
-local smoothSlider = createSlider(mainFrame, "SMOOTHNESS", 1, 50, 15, 240, function(v) return math.floor(v) end)
+ESPTab:CreateToggle({
+    Name = "🏷️ Show Name",
+    CurrentValue = Settings.ESPShowName,
+    Flag = "ESPNameToggle",
+    Callback = function(Value)
+        Settings.ESPShowName = Value
+    end,
+})
 
-local autoPlayBtn = Instance.new("TextButton")
-autoPlayBtn.Size = UDim2.new(0.86, 0, 0, 45)
-autoPlayBtn.Position = UDim2.new(0.07, 0, 0, 320)
-autoPlayBtn.Text = "🎮 AUTO-PLAY (DETECTS PLAYERS)"
-autoPlayBtn.TextColor3 = Color3.fromRGB(255,255,255)
-autoPlayBtn.BackgroundColor3 = Color3.fromRGB(45, 55, 90)
-autoPlayBtn.Font = Enum.Font.GothamBold
-autoPlayBtn.TextSize = 16
-autoPlayBtn.BorderSizePixel = 0
-autoPlayBtn.Parent = mainFrame
+ESPTab:CreateToggle({
+    Name = "📏 Show Distance",
+    CurrentValue = Settings.ESPShowDistance,
+    Flag = "ESPDistanceToggle",
+    Callback = function(Value)
+        Settings.ESPShowDistance = Value
+    end,
+})
 
-local statusLabel = Instance.new("TextLabel")
-statusLabel.Size = UDim2.new(1, -20, 0, 30)
-statusLabel.Position = UDim2.new(0, 10, 0, 375)
-statusLabel.BackgroundTransparency = 1
-statusLabel.Text = "Status: IDLE"
-statusLabel.TextColor3 = Color3.fromRGB(150,150,150)
-statusLabel.TextSize = 13
-statusLabel.Font = Enum.Font.Gotham
-statusLabel.Parent = mainFrame
+ESPTab:CreateToggle({
+    Name = "❤️ Show Health",
+    CurrentValue = Settings.ESPShowHealth,
+    Flag = "ESPHealthToggle",
+    Callback = function(Value)
+        Settings.ESPShowHealth = Value
+    end,
+})
 
--- --------------------------------
--- 3. LOGIC: TARGET ACQUISITION
--- --------------------------------
-local function getClosestPlayerInFOV()
-    local camera = workspace.CurrentCamera
-    local center = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
-    local closestDist = fovSlider()
-    local closestPlayer = nil
+ESPTab:CreateToggle({
+    Name = "🎯 Show Tracers",
+    CurrentValue = Settings.ESPTracers,
+    Flag = "ESPTracerToggle",
+    Callback = function(Value)
+        Settings.ESPTracers = Value
+    end,
+})
 
+ESPTab:CreateToggle({
+    Name = "🎨 Team Color (RGB)",
+    CurrentValue = Settings.ESPTeamColor,
+    Flag = "ESPColorToggle",
+    Callback = function(Value)
+        Settings.ESPTeamColor = Value
+    end,
+})
+
+ESPTab:CreateToggle({
+    Name = "👥 Team Check (Ignor Team)",
+    CurrentValue = Settings.TeamCheck,
+    Flag = "TeamCheckToggle",
+    Callback = function(Value)
+        Settings.TeamCheck = Value
+        Rayfield:Notify({
+            Title = "Team Check",
+            Content = Value and "Teammates will be IGNORED" or "Teammates will be TARGETED",
+            Duration = 2,
+        })
+    end,
+})
+
+-- Tab: Combat & Wallbang
+local CombatTab = Window:CreateTab("💥 Combat", 4483362458)
+
+CombatTab:CreateToggle({
+    Name = "🔫 Wallbang (Tembus Tembok)",
+    CurrentValue = Settings.WallbangEnabled,
+    Flag = "WallbangToggle",
+    Callback = function(Value)
+        Settings.WallbangEnabled = Value
+        Rayfield:Notify({
+            Title = "Wallbang",
+            Content = Value and "Bullets can penetrate walls" or "Wallbang disabled",
+            Duration = 1.5,
+        })
+    end,
+})
+
+CombatTab:CreateToggle({
+    Name = "🧱 Wall Check (ESP Tembus Tembok)",
+    CurrentValue = Settings.WallCheck,
+    Flag = "WallCheckToggle",
+    Callback = function(Value)
+        Settings.WallCheck = Value
+        -- WallCheck = true berarti ESP tetap muncul walau dibalik tembok
+    end,
+})
+
+-- Tab: Auto-Play
+local AutoTab = Window:CreateTab("🤖 Auto-Play", 4483362458)
+
+local autoPlayRunning = false
+local autoPlayConnection = nil
+
+local function autoPlayLogic()
+    if not Settings.AutoPlayEnabled then return end
+    
+    local nearestPlayer = nil
+    local nearestDist = math.huge
+    
     for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
-            local root = player.Character:FindFirstChild("HumanoidRootPart")
-            if root then
-                local screenPos, onScreen = camera:WorldToViewportPoint(root.Position)
-                if onScreen then
-                    local dist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
-                    if dist < closestDist then
-                        closestDist = dist
-                        closestPlayer = player
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            if Settings.TeamCheck and player.Team == LocalPlayer.Team and player.Team then
+                -- Skip teammate
+            else
+                local root = player.Character.HumanoidRootPart
+                if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                    local dist = (root.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
+                    if dist < nearestDist then
+                        nearestDist = dist
+                        nearestPlayer = player
                     end
                 end
             end
         end
     end
-    return closestPlayer, closestDist
+    
+    if nearestPlayer and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+        local humanoid = LocalPlayer.Character.Humanoid
+        local targetPos = nearestPlayer.Character.HumanoidRootPart.Position
+        humanoid:MoveTo(targetPos)
+    end
 end
 
--- Aim assist (mock movement of mouse)
-local currentTarget = nil
-RunService.RenderStepped:Connect(function()
-    if not toggleAimbot() then return end
+AutoTab:CreateToggle({
+    Name = "🎮 Auto-Play (Detect & Chase)",
+    CurrentValue = Settings.AutoPlayEnabled,
+    Flag = "AutoPlayToggle",
+    Callback = function(Value)
+        Settings.AutoPlayEnabled = Value
+        if Value then
+            if autoPlayConnection then autoPlayConnection:Disconnect() end
+            autoPlayConnection = RunService.Heartbeat:Connect(autoPlayLogic)
+            Rayfield:Notify({
+                Title = "Auto-Play",
+                Content = "Auto-Play ENABLED - Chasing enemies",
+                Duration = 2,
+            })
+        else
+            if autoPlayConnection then autoPlayConnection:Disconnect() end
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+                LocalPlayer.Character.Humanoid:MoveTo(LocalPlayer.Character.HumanoidRootPart.Position)
+            end
+            Rayfield:Notify({
+                Title = "Auto-Play",
+                Content = "Auto-Play DISABLED",
+                Duration = 1.5,
+            })
+        end
+    end,
+})
 
-    local target, dist = getClosestPlayerInFOV()
-    if target then
+-- ============================================
+-- 4. ESP SYSTEM (TEMBUS TEMBOK dengan OUTLINE)
+-- ============================================
+
+local function createESPObject(player)
+    if espObjects[player] then return end
+    
+    -- Box Outline (Square)
+    local box = Drawing.new("Square")
+    box.Visible = false
+    box.Thickness = 1.5
+    box.Filled = false
+    box.Color = getPlayerColor(player)
+    
+    -- Nama Player
+    local nameText = Drawing.new("Text")
+    nameText.Visible = false
+    nameText.Size = 14
+    nameText.Center = true
+    nameText.Outline = true
+    nameText.Color = Color3.fromRGB(255, 255, 255)
+    
+    -- Distance Text
+    local distText = Drawing.new("Text")
+    distText.Visible = false
+    distText.Size = 11
+    distText.Center = true
+    distText.Outline = true
+    distText.Color = Color3.fromRGB(200, 200, 200)
+    
+    -- Health Bar
+    local healthBar = Drawing.new("Line")
+    healthBar.Visible = false
+    healthBar.Thickness = 3
+    
+    -- Tracer (garis dari bawah layar ke target)
+    local tracer = Drawing.new("Line")
+    tracer.Visible = false
+    tracer.Thickness = 1.5
+    
+    espObjects[player] = {
+        Box = box,
+        Name = nameText,
+        Distance = distText,
+        HealthBar = healthBar,
+        Tracer = tracer,
+    }
+end
+
+local function updateESP()
+    if not Settings.ESPEnabled then return end
+    
+    for player, objects in pairs(espObjects) do
+        if player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+            local rootPart = player.Character.HumanoidRootPart
+            local headPart = player.Character:FindFirstChild("Head") or rootPart
+            local vector, onScreen = Camera:WorldToViewportPoint(rootPart.Position)
+            
+            -- Hitung posisi di layar
+            local screenPos = Vector2.new(vector.X, vector.Y)
+            local isOnScreen = onScreen
+            
+            -- Wall Check: Jika tembok menghalangi, tetap tampilkan (tembus tembok)
+            if not Settings.WallCheck then
+                -- Cek apakah terhalang tembok
+                local raycastParams = RaycastParams.new()
+                raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+                raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, player.Character}
+                local ray = workspace:Raycast(Camera.CFrame.Position, (rootPart.Position - Camera.CFrame.Position).Unit * 1000, raycastParams)
+                if ray and ray.Instance then
+                    isOnScreen = false
+                end
+            end
+            
+            if isOnScreen and vector.Z > 0 then
+                -- Hitung ukuran box berdasarkan jarak
+                local distance = (Camera.CFrame.Position - rootPart.Position).Magnitude
+                local boxSize = 150 / distance * 5
+                local boxHeight = boxSize * 1.8
+                local boxWidth = boxSize
+                
+                local boxPos = Vector2.new(screenPos.X - boxWidth/2, screenPos.Y - boxHeight/2)
+                
+                -- Update Box
+                if Settings.ESPBoxOutline then
+                    objects.Box.Visible = true
+                    objects.Box.Size = Vector2.new(boxWidth, boxHeight)
+                    objects.Box.Position = boxPos
+                    objects.Box.Color = getPlayerColor(player)
+                else
+                    objects.Box.Visible = false
+                end
+                
+                -- Update Name Text
+                if Settings.ESPShowName then
+                    objects.Name.Visible = true
+                    objects.Name.Text = player.Name
+                    objects.Name.Position = Vector2.new(screenPos.X, screenPos.Y - boxHeight/2 - 15)
+                    objects.Name.Color = getPlayerColor(player)
+                else
+                    objects.Name.Visible = false
+                end
+                
+                -- Update Distance
+                if Settings.ESPShowDistance then
+                    objects.Distance.Visible = true
+                    objects.Distance.Text = math.floor(distance) .. "m"
+                    objects.Distance.Position = Vector2.new(screenPos.X, screenPos.Y + boxHeight/2 + 5)
+                else
+                    objects.Distance.Visible = false
+                end
+                
+                -- Update Health Bar
+                if Settings.ESPShowHealth then
+                    local health = player.Character.Humanoid.Health
+                    local maxHealth = player.Character.Humanoid.MaxHealth
+                    local healthPercent = math.clamp(health / maxHealth, 0, 1)
+                    local healthBarHeight = boxHeight * healthPercent
+                    
+                    objects.HealthBar.Visible = true
+                    objects.HealthBar.From = Vector2.new(boxPos.X - 5, boxPos.Y + boxHeight - healthBarHeight)
+                    objects.HealthBar.To = Vector2.new(boxPos.X - 5, boxPos.Y + boxHeight)
+                    objects.HealthBar.Color = Color3.fromRGB(0, 255 * (1 - healthPercent), 255 * healthPercent)
+                else
+                    objects.HealthBar.Visible = false
+                end
+                
+                -- Update Tracers
+                if Settings.ESPTracers then
+                    objects.Tracer.Visible = true
+                    objects.Tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+                    objects.Tracer.To = screenPos
+                    objects.Tracer.Color = getPlayerColor(player)
+                else
+                    objects.Tracer.Visible = false
+                end
+            else
+                -- Hide all if off-screen
+                objects.Box.Visible = false
+                objects.Name.Visible = false
+                objects.Distance.Visible = false
+                objects.HealthBar.Visible = false
+                objects.Tracer.Visible = false
+            end
+        else
+            -- Hide all if player invalid
+            objects.Box.Visible = false
+            objects.Name.Visible = false
+            objects.Distance.Visible = false
+            objects.HealthBar.Visible = false
+            objects.Tracer.Visible = false
+        end
+    end
+end
+
+local function clearESP()
+    for player, objects in pairs(espObjects) do
+        if objects.Box then objects.Box:Remove() end
+        if objects.Name then objects.Name:Remove() end
+        if objects.Distance then objects.Distance:Remove() end
+        if objects.HealthBar then objects.HealthBar:Remove() end
+        if objects.Tracer then objects.Tracer:Remove() end
+    end
+    espObjects = {}
+end
+
+-- Setup ESP untuk semua player
+local function setupESP()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            createESPObject(player)
+        end
+    end
+end
+
+Players.PlayerAdded:Connect(function(player)
+    if player ~= LocalPlayer then
+        createESPObject(player)
+    end
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    if espObjects[player] then
+        if espObjects[player].Box then espObjects[player].Box:Remove() end
+        if espObjects[player].Name then espObjects[player].Name:Remove() end
+        if espObjects[player].Distance then espObjects[player].Distance:Remove() end
+        if espObjects[player].HealthBar then espObjects[player].HealthBar:Remove() end
+        if espObjects[player].Tracer then espObjects[player].Tracer:Remove() end
+        espObjects[player] = nil
+    end
+end)
+
+-- ============================================
+-- 5. AIMBOT SYSTEM
+-- ============================================
+
+local function getClosestPlayerInFOV()
+    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local closestDist = Settings.AimbotFOV
+    local closestPlayer = nil
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+            if Settings.TeamCheck and player.Team == LocalPlayer.Team and player.Team then
+                -- Skip teammate
+            else
+                local targetPart = player.Character:FindFirstChild(Settings.AimPart) or player.Character:FindFirstChild("HumanoidRootPart")
+                if targetPart then
+                    local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+                    if onScreen then
+                        local dist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+                        if dist < closestDist then
+                            closestDist = dist
+                            closestPlayer = player
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return closestPlayer
+end
+
+-- Aimbot loop
+RunService.RenderStepped:Connect(function()
+    if not Settings.AimbotEnabled then return end
+    
+    local target = getClosestPlayerInFOV()
+    if target and target.Character then
         currentTarget = target
-        local targetPart = target.Character.HumanoidRootPart
+        local targetPart = target.Character:FindFirstChild(Settings.AimPart) or target.Character:FindFirstChild("HumanoidRootPart")
         if targetPart then
-            local camera = workspace.CurrentCamera
-            local vector, onScreen = camera:WorldToViewportPoint(targetPart.Position)
+            local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
             if onScreen then
-                local targetScreen = Vector2.new(vector.X, vector.Y)
-                local smooth = smoothSlider()
-                local mouseDelta = (targetScreen - UserInputService:GetMouseLocation()) / smooth
-                -- Simulated aim movement: mousemoverel (only works in certain contexts, for real aim you'd use mouse move)
-                -- For test environment we just update an internal value – replace with actual mousemoverel if plugin environment allows.
-                -- We'll store a CFrame for target lock.
-                if toggleTargetLock() then
-                    -- Target lock sim: keep camera towards target
-                    local cameraCF = CFrame.new(camera.CFrame.Position, targetPart.Position)
-                    camera.CFrame = cameraCF
+                local targetScreen = Vector2.new(screenPos.X, screenPos.Y)
+                local currentMouse = UserInputService:GetMouseLocation()
+                local delta = (targetScreen - currentMouse) / Settings.AimbotSmoothness
+                
+                -- Gerakkan mouse (mouse move simulation)
+                mousemoverel(delta.X, delta.Y)
+                
+                -- Target Lock: Camera follow
+                if Settings.TargetLock then
+                    local cameraCF = CFrame.new(Camera.CFrame.Position, targetPart.Position)
+                    Camera.CFrame = cameraCF
                 end
             end
         end
@@ -275,69 +582,57 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- --------------------------------
--- 4. AUTO-PLAY LOGIC (DETECTS & MOVES)
--- --------------------------------
-local autoPlayActive = false
-local autoPlayConnection = nil
+-- ============================================
+-- 6. WALLBANG SYSTEM (Tembus Tembok)
+-- ============================================
+-- Script ini memodifikasi raycast untuk bullet agar bisa tembus tembok
+-- Integrasikan dengan sistem weapon game
 
-local function autoPlay()
-    if not autoPlayActive then return end
-    -- Find nearest player
-    local nearest = nil
-    local nearestDist = math.huge
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-            local dist = (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and 
-                         (player.Character.HumanoidRootPart.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude) or math.huge
-            if dist < nearestDist then
-                nearestDist = dist
-                nearest = player
-            end
+-- Override fungsi raycast untuk wallbang
+local originalRaycast = workspace.Raycast
+if Settings.WallbangEnabled then
+    -- Method: Menggunakan parameter raycast yang mengabaikan wall objects
+    -- Atau memodifikasi filterType
+    local function wallbangRaycast(origin, direction, range, params)
+        if Settings.WallbangEnabled then
+            -- Buat parameter baru dengan ignore list yang mencakup tembok
+            local newParams = RaycastParams.new()
+            newParams.FilterType = Enum.RaycastFilterType.Blacklist
+            newParams.FilterDescendantsInstances = {LocalPlayer.Character}
+            -- Tambahkan material tertentu yang ingin ditembus (contoh: Concrete, Metal, dll)
+            return workspace:Raycast(origin, direction * range, newParams)
+        else
+            return originalRaycast(origin, direction, range, params)
         end
     end
-
-    if nearest and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-        local humanoid = LocalPlayer.Character.Humanoid
-        local root = LocalPlayer.Character.HumanoidRootPart
-        local targetPos = nearest.Character.HumanoidRootPart.Position
-        local direction = (targetPos - root.Position).Unit
-        -- Move towards target (mock movement)
-        humanoid:MoveTo(targetPos)
-        statusLabel.Text = "Auto-play: moving toward " .. nearest.Name
-    else
-        statusLabel.Text = "Auto-play: No targets found"
-    end
+    -- Catatan: Override global hanya mungkin di environment executor tertentu
 end
 
-autoPlayBtn.MouseButton1Click:Connect(function()
-    autoPlayActive = not autoPlayActive
-    if autoPlayActive then
-        autoPlayBtn.BackgroundColor3 = Color3.fromRGB(200, 70, 70)
-        autoPlayBtn.Text = "⏹ STOP AUTO-PLAY"
-        autoPlayConnection = RunService.Heartbeat:Connect(autoPlay)
-        statusLabel.Text = "Auto-play ENABLED"
-    else
-        autoPlayBtn.BackgroundColor3 = Color3.fromRGB(45, 55, 90)
-        autoPlayBtn.Text = "🎮 AUTO-PLAY (DETECTS PLAYERS)"
-        if autoPlayConnection then autoPlayConnection:Disconnect() end
-        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-            LocalPlayer.Character.Humanoid:MoveTo(LocalPlayer.Character.HumanoidRootPart.Position)
-        end
-        statusLabel.Text = "Auto-play DISABLED"
+-- ============================================
+-- 7. HOTKEY & INITIALIZATION
+-- ============================================
+
+-- Toggle GUI dengan Insert
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.Insert then
+        Rayfield:Toggle()
     end
 end)
 
--- --------------------------------
--- 5. CLEANUP ON RESPAWN
--- --------------------------------
-LocalPlayer.CharacterAdded:Connect(function()
-    if autoPlayActive then
-        -- Re-activate auto-play pathfinding on new character
-        if autoPlayConnection then autoPlayConnection:Disconnect() end
-        autoPlayConnection = RunService.Heartbeat:Connect(autoPlay)
-    end
+-- Inisialisasi ESP
+setupESP()
+
+-- ESP Update Loop
+RunService.RenderStepped:Connect(function()
+    updateESP()
 end)
 
--- Initialize window visibility
-mainFrame.Visible = true
+-- Notifikasi selesai loading
+Rayfield:Notify({
+    Title = "✅ Script Loaded!",
+    Content = "Press Insert to toggle GUI",
+    Duration = 3,
+})
+
+print("Script loaded successfully! Press Insert to toggle GUI")
