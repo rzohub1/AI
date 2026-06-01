@@ -1,17 +1,20 @@
--- RZOHUB Brutal v3 - Full GUI (Delta Executor Mobile)
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+-- RZOHUB Brutal v5 - Fluent UI (All Features Combined)
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 
-local Window = Rayfield:CreateWindow({
-    Name = "RZOHUB - Brutal v3",
-    LoadingTitle = "Loading Brutal Menu...",
-    LoadingSubtitle = "Private Test Environment",
-    ConfigurationSaving = { Enabled = true, FolderName = "RZOHUB", FileName = "BrutalV3" }
+local Window = Fluent:CreateWindow({
+    Title = "RZOHUB Brutal v5",
+    SubTitle = "Private Test | Delta Executor",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(580, 460),
+    Acrylic = false,
+    Theme = "Dark",
+    MinimizeKey = Enum.KeyCode.RightShift
 })
 
-local MainTab = Window:CreateTab("Main", 4483362458)
-local AimTab = Window:CreateTab("Aimbot", 4483362458)
-local VisualTab = Window:CreateTab("Visual", 4483362458)
-local MiscTab = Window:CreateTab("Misc", 4483362458)
+local MainTab = Window:AddTab({ Title = "Main" })
+local AimTab = Window:AddTab({ Title = "Aimbot" })
+local VisualTab = Window:AddTab({ Title = "Visual" })
+local MiscTab = Window:AddTab({ Title = "Misc" })
 
 -- Variables
 local AimbotEnabled = false
@@ -33,7 +36,6 @@ local LocalPlayer = Players.LocalPlayer
 
 -- Extreme Bypass
 local mt = getrawmetatable(game)
-local oldNamecall = mt.__namecall
 setreadonly(mt, false)
 mt.__namecall = newcclosure(function(self, ...)
     local args = {...}
@@ -46,7 +48,7 @@ mt.__namecall = newcclosure(function(self, ...)
             end
         end
     end
-    return oldNamecall(self, unpack(args))
+    return mt.__namecall(self, unpack(args))
 end)
 setreadonly(mt, true)
 
@@ -63,11 +65,72 @@ RunService.RenderStepped:Connect(function()
     fovCircle.Visible = AimbotEnabled
 end)
 
--- Resolver
-local function GetResolvedPosition(head)
-    if not ResolverEnabled then return head.Position end
-    local vel = head.Parent.HumanoidRootPart.Velocity
-    return head.Position + vel * 0.1
+-- Advanced ESP (Nama + Jarak + Darah)
+local ESPObjects = {}
+
+local function CreateESP(plr)
+    if plr == LocalPlayer or ESPObjects[plr] then return end
+
+    local billboard = Instance.new("BillboardGui")
+    billboard.Adornee = plr.Character and plr.Character:FindFirstChild("Head")
+    billboard.Size = UDim2.new(0, 220, 0, 60)
+    billboard.StudsOffset = Vector3.new(0, 3.5, 0)
+    billboard.AlwaysOnTop = true
+    billboard.Parent = (plr.Character and plr.Character:FindFirstChild("Head")) or plr.Character
+
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Size = UDim2.new(1, 0, 0.45, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    nameLabel.TextStrokeTransparency = 0
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextScaled = true
+    nameLabel.Parent = billboard
+
+    local infoLabel = Instance.new("TextLabel")
+    infoLabel.Size = UDim2.new(1, 0, 0.55, 0)
+    infoLabel.Position = UDim2.new(0, 0, 0.45, 0)
+    infoLabel.BackgroundTransparency = 1
+    infoLabel.TextColor3 = Color3.fromRGB(0, 255, 180)
+    infoLabel.TextStrokeTransparency = 0
+    infoLabel.Font = Enum.Font.GothamSemibold
+    infoLabel.TextScaled = true
+    infoLabel.Parent = billboard
+
+    ESPObjects[plr] = {Billboard = billboard, Name = nameLabel, Info = infoLabel}
+end
+
+-- ESP Update
+RunService.RenderStepped:Connect(function()
+    for plr, esp in pairs(ESPObjects) do
+        if ESPEnabled and plr.Character and plr.Character:FindFirstChild("Head") then
+            local head = plr.Character.Head
+            local humanoid = plr.Character:FindFirstChild("Humanoid")
+            esp.Billboard.Adornee = head
+            esp.Billboard.Enabled = true
+
+            local distance = (Camera.CFrame.Position - head.Position).Magnitude
+            local health = humanoid and math.floor(humanoid.Health) or 0
+
+            esp.Name.Text = plr.Name
+            esp.Info.Text = string.format("HP: %d | %.0f studs", health, distance)
+        elseif esp.Billboard then
+            esp.Billboard.Enabled = false
+        end
+    end
+end)
+
+-- Auto ESP
+Players.PlayerAdded:Connect(function(plr)
+    plr.CharacterAdded:Connect(function()
+        task.wait(0.6)
+        if ESPEnabled then CreateESP(plr) end
+    end)
+end)
+
+for _, plr in ipairs(Players:GetPlayers()) do
+    if plr.Character then CreateESP(plr) end
+    plr.CharacterAdded:Connect(function() task.wait(0.6); if ESPEnabled then CreateESP(plr) end end)
 end
 
 -- Get Closest Player
@@ -98,13 +161,13 @@ local function GetClosestPlayer()
     return closest
 end
 
--- Aimbot Loop
+-- Aimbot Loop (Brutal)
 RunService.RenderStepped:Connect(function()
     if not AimbotEnabled then return end
     CurrentTarget = GetClosestPlayer()
     if CurrentTarget and CurrentTarget.Character and CurrentTarget.Character:FindFirstChild("Head") then
         local head = CurrentTarget.Character.Head
-        local targetPos = GetResolvedPosition(head) + (head.Parent.HumanoidRootPart.Velocity * 0.08)
+        local targetPos = head.Position + (head.Parent.HumanoidRootPart.Velocity * 0.085)
         local targetCFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
         Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, Smoothness)
     end
@@ -119,7 +182,7 @@ RunService.Heartbeat:Connect(function()
         local hit = workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character})
         if hit and hit:IsDescendantOf(char) then
             mouse1click()
-            task.wait(0.03) -- Super cepat
+            task.wait(0.03)
         end
     end
 end)
@@ -131,34 +194,31 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- ==================== GUI MENU ====================
+-- ==================== FLUENT UI ====================
+MainTab:AddToggle({Title = "Aimbot", Default = false, Callback = function(v) AimbotEnabled = v end})
+MainTab:AddToggle({Title = "Silent Aim", Default = false, Callback = function(v) SilentAimEnabled = v end})
+MainTab:AddToggle({Title = "Triggerbot (Super Fast)", Default = false, Callback = function(v) TriggerbotEnabled = v end})
+MainTab:AddToggle({Title = "Resolver", Default = false, Callback = function(v) ResolverEnabled = v end})
+MainTab:AddToggle({Title = "Spin Bot", Default = false, Callback = function(v) SpinBotEnabled = v end})
 
--- Main Tab
-MainTab:CreateToggle({Name = "Aimbot", CurrentValue = false, Callback = function(v) AimbotEnabled = v end})
-MainTab:CreateToggle({Name = "Silent Aim", CurrentValue = false, Callback = function(v) SilentAimEnabled = v end})
-MainTab:CreateToggle({Name = "Triggerbot (Fast Shoot)", CurrentValue = false, Callback = function(v) TriggerbotEnabled = v end})
-MainTab:CreateToggle({Name = "Resolver", CurrentValue = false, Callback = function(v) ResolverEnabled = v end})
-MainTab:CreateToggle({Name = "Spin Bot", CurrentValue = false, Callback = function(v) SpinBotEnabled = v end})
+AimTab:AddSlider({Title = "FOV", Min = 80, Max = 700, Default = FOV, Increment = 10, Callback = function(v) FOV = v end})
+AimTab:AddSlider({Title = "Smoothness (Lower = Lebih Lengket)", Min = 0.05, Max = 0.25, Default = Smoothness, Increment = 0.01, Callback = function(v) Smoothness = v end})
+AimTab:AddToggle({Title = "Wall Check", Default = true, Callback = function(v) WallCheck = v end})
+AimTab:AddToggle({Title = "Team Check", Default = true, Callback = function(v) TeamCheck = v end})
 
--- Aimbot Tab
-AimTab:CreateSlider({Name = "FOV", Range = {80, 700}, Increment = 10, CurrentValue = FOV, Callback = function(v) FOV = v end})
-AimTab:CreateSlider({Name = "Smoothness (Lower = Lebih Lengket)", Range = {0.05, 0.25}, Increment = 0.01, CurrentValue = Smoothness, Callback = function(v) Smoothness = v end})
-AimTab:CreateToggle({Name = "Wall Check", CurrentValue = true, Callback = function(v) WallCheck = v end})
-AimTab:CreateToggle({Name = "Team Check", CurrentValue = true, Callback = function(v) TeamCheck = v end})
+VisualTab:AddToggle({Title = "ESP (Nama + Jarak + Darah)", Default = false, Callback = function(v) ESPEnabled = v end})
+VisualTab:AddParagraph({Title = "Info", Content = "FOV Circle muncul otomatis saat Aimbot aktif"})
 
--- Visual Tab
-VisualTab:CreateToggle({Name = "ESP", CurrentValue = false, Callback = function(v) ESPEnabled = v end})
-VisualTab:CreateParagraph({Title = "Note", Content = "FOV Circle otomatis muncul saat Aimbot aktif"})
-
--- Misc Tab
-MiscTab:CreateButton({Name = "Anti Lag (Max Performance)", Callback = function()
+MiscTab:AddButton({Title = "Anti Lag Max (Mobile Optimized)", Callback = function()
     settings().Rendering.QualityLevel = 1
     setfpscap(60)
-    Rayfield:Notify({Title = "Anti Lag", Content = "Activated for Mobile", Duration = 5})
+    Fluent:Notify({Title = "Anti Lag", Content = "Activated!", Duration = 5})
 end})
 
-Rayfield:Notify({
-    Title = "Brutal v3 Loaded",
-    Content = "Semua fitur sudah masuk ke GUI",
+Fluent:Notify({
+    Title = "RZOHUB Brutal v5",
+    Content = "Semua fitur sudah digabungkan • Fluent UI lebih smooth",
     Duration = 10
 })
+
+print("🚀 RZOHUB Brutal v5 Loaded - Press Right Shift to toggle GUI")
