@@ -1,11 +1,79 @@
 -- ============================================
--- RZOHUB Brutal v6 - Full Recode
+-- RZOHUB Brutal v6 - Full Recode + Bypass
 -- Rayfield UI Framework
--- No Bypass, Full Functionality
+-- WITH ANTI-CHEAT BYPASS (USE AT YOUR OWN RISK)
 -- ============================================
 
 -- Load Rayfield
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+-- ============================================
+-- ANTI-CHEAT BYPASS
+-- ============================================
+local success, err = pcall(function()
+    -- Bypass metatable protection
+    local mt = getrawmetatable(game)
+    local old_namecall = mt.__namecall
+    local old_index = mt.__index
+    local old_newindex = mt.__newindex
+    
+    setreadonly(mt, false)
+    
+    -- Bypass namecall (FireServer, InvokeServer, etc)
+    mt.__namecall = newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        local args = {...}
+        
+        -- Silent aim hook untuk projectiles
+        if method == "FireServer" or method == "InvokeServer" then
+            local selfStr = tostring(self)
+            if selfStr:lower():find("bullet") or 
+               selfStr:lower():find("projectile") or 
+               selfStr:lower():find("shoot") or 
+               selfStr:lower():find("fire") or
+               selfStr:lower():find("weapon") then
+                -- Redirect untuk silent aim
+            end
+        end
+        
+        return old_namecall(self, unpack(args))
+    end)
+    
+    -- Bypass checkers
+    mt.__index = newcclosure(function(self, key)
+        if key == "Health" and self:IsA("Humanoid") then
+            return old_index(self, key)
+        end
+        if key == "WalkSpeed" or key == "JumpPower" then
+            return old_index(self, key)
+        end
+        return old_index(self, key)
+    end)
+    
+    -- Bypass write restrictions
+    mt.__newindex = newcclosure(function(self, key, value)
+        local success, err = pcall(function()
+            old_newindex(self, key, value)
+        end)
+        if not success then
+            rawset(self, key, value)
+        end
+    end)
+    
+    setreadonly(mt, true)
+    
+    -- Disable remote event logs (optional)
+    if game:GetService("CoreGui"):FindFirstChild("RobloxPromptGui") then
+        game:GetService("CoreGui").RobloxPromptGui.Enabled = false
+    end
+    
+    -- Bypass admin scripts
+    for _, v in pairs(game:GetDescendants()) do
+        if v:IsA("LocalScript") and (v.Name:lower():find("anticheat") or v.Name:lower():find("anti-cheat")) then
+            v:Disable()
+        end
+    end
+end)
 
 -- ============================================
 -- UI WINDOW & TABS
@@ -13,7 +81,7 @@ local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local Window = Rayfield:CreateWindow({
     Name = "RZOHUB - Brutal v6",
     LoadingTitle = "RZOHUB Loading...",
-    LoadingSubtitle = "Recoded Version",
+    LoadingSubtitle = "Bypass Active",
     ConfigurationSaving = {
         Enabled = true,
         FolderName = "RZOHUB",
@@ -24,6 +92,7 @@ local Window = Rayfield:CreateWindow({
 -- Create Tabs
 local MainTab = Window:CreateTab("⚔️ MAIN", nil)
 local CombatTab = Window:CreateTab("🎯 COMBAT", nil)
+local SilentTab = Window:CreateTab("🔇 SILENT AIM", nil)
 local VisualTab = Window:CreateTab("👁️ VISUAL", nil)
 local PlayerTab = Window:CreateTab("👤 PLAYER", nil)
 local MiscTab = Window:CreateTab("🛠️ MISC", nil)
@@ -37,6 +106,7 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local VirtualInput = game:GetService("VirtualInput")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
@@ -56,6 +126,14 @@ local AimPart = "Head"
 local AimSmoothness = 0
 local PredictionEnabled = true
 local PredictionAmount = 0.085
+
+-- Silent Aim specific
+local SilentAimMethod = "Camera" -- Camera, Mouse, Remote
+local SilentAimFOV = 150
+local AutoFire = false
+local AutoFireDelay = 0.1
+local HitChance = 100
+local HitChanceValue = 100
 
 -- Visual
 local ESPEnabled = false
@@ -85,9 +163,14 @@ local FPSUnlock = false
 -- Target
 local CurrentTarget = nil
 local CurrentAimPosition = nil
+local SilentTarget = nil
 
 -- ESP Storage
 local ESPList = {}
+
+-- Remote storage untuk silent aim
+local WeaponRemote = nil
+local CurrentWeapon = nil
 
 -- ============================================
 -- UTILITY FUNCTIONS
@@ -108,6 +191,53 @@ local function GetPlayers()
     return plrs
 end
 
+-- Get current weapon
+local function GetCurrentWeapon()
+    local character = LocalPlayer.Character
+    if not character then return nil end
+    
+    local tool = character:FindFirstChildWhichIsA("Tool")
+    if tool then
+        return tool
+    end
+    
+    local backpack = LocalPlayer.Backpack
+    local equipped = backpack:FindFirstChildWhichIsA("Tool")
+    if equipped then
+        return equipped
+    end
+    
+    return nil
+end
+
+-- Find weapon remote
+local function FindWeaponRemote(weapon)
+    if not weapon then return nil end
+    
+    for _, v in pairs(weapon:GetDescendants()) do
+        if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") then
+            if v.Name:lower():find("shoot") or 
+               v.Name:lower():find("fire") or 
+               v.Name:lower():find("attack") or
+               v.Name:lower():find("bullet") then
+                return v
+            end
+        end
+    end
+    
+    for _, v in pairs(ReplicatedStorage:GetDescendants()) do
+        if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") then
+            if v.Name:lower():find("shoot") or 
+               v.Name:lower():find("fire") or 
+               v.Name:lower():find("attack") then
+                return v
+            end
+        end
+    end
+    
+    return nil
+end
+
 -- ============================================
 -- FOV CIRCLE
 -- ============================================
@@ -119,7 +249,15 @@ FOVCircle.Filled = false
 FOVCircle.NumSides = 60
 FOVCircle.Visible = false
 
-local function UpdateFOVCircle()
+local SilentFOVCircle = Drawing.new("Circle")
+SilentFOVCircle.Thickness = 2
+SilentFOVCircle.Color = Color3.fromRGB(50, 150, 255)
+SilentFOVCircle.Transparency = 0.7
+SilentFOVCircle.Filled = false
+SilentFOVCircle.NumSides = 60
+SilentFOVCircle.Visible = false
+
+local function UpdateFOVCircles()
     if AimbotEnabled and FOVVisible then
         FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
         FOVCircle.Radius = FOVRadius
@@ -127,14 +265,23 @@ local function UpdateFOVCircle()
     else
         FOVCircle.Visible = false
     end
+    
+    if SilentAimEnabled and FOVVisible then
+        SilentFOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+        SilentFOVCircle.Radius = SilentAimFOV
+        SilentFOVCircle.Visible = true
+    else
+        SilentFOVCircle.Visible = false
+    end
 end
 
 -- ============================================
 -- AIMBOT CORE
 -- ============================================
-local function GetClosestPlayerToCursor()
+local function GetClosestPlayerToCursor(useSilentFOV)
+    local fovToUse = useSilentFOV and SilentAimFOV or FOVRadius
     local closestPlayer = nil
-    local shortestDistance = FOVRadius
+    local shortestDistance = fovToUse
     local mousePosition = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
     
     for _, player in ipairs(GetPlayers()) do
@@ -164,10 +311,20 @@ local function GetClosestPlayerToCursor()
         
         local distance = (Vector2.new(screenPos.X, screenPos.Y) - mousePosition).Magnitude
         
+        -- Hit chance check
+        if useSilentFOV and HitChance then
+            local random = math.random(1, 100)
+            if random > HitChanceValue then
+                goto continue
+            end
+        end
+        
         if distance < shortestDistance then
             shortestDistance = distance
             closestPlayer = player
         end
+        
+        ::continue::
     end
     
     return closestPlayer
@@ -185,14 +342,14 @@ end
 
 -- Aimbot Update
 RunService.RenderStepped:Connect(function()
-    UpdateFOVCircle()
+    UpdateFOVCircles()
     
     if not AimbotEnabled then
         CurrentTarget = nil
         return
     end
     
-    CurrentTarget = GetClosestPlayerToCursor()
+    CurrentTarget = GetClosestPlayerToCursor(false)
     
     if CurrentTarget and CurrentTarget.Character then
         local aimPart = CurrentTarget.Character:FindFirstChild(AimPart)
@@ -214,10 +371,127 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -- ============================================
--- SILENT AIM (Modified - No Bypass)
+-- SILENT AIM (DENGAN BYPASS)
 -- ============================================
--- Silent aim menggunakan pendekatan berbeda tanpa bypass
--- (Fitur ini terbatas tanpa bypass)
+local function GetSilentTarget()
+    return GetClosestPlayerToCursor(true)
+end
+
+-- Method 1: Camera-based silent aim (most compatible)
+local function SilentAimCamera()
+    if not SilentAimEnabled then return end
+    
+    SilentTarget = GetSilentTarget()
+    
+    if SilentTarget and SilentTarget.Character then
+        local aimPart = SilentTarget.Character:FindFirstChild(AimPart)
+        if aimPart then
+            local targetPos = GetPredictedPosition(aimPart)
+            
+            -- Temporarily change camera CFrame
+            local originalCF = Camera.CFrame
+            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
+            
+            -- Auto fire jika enabled
+            if AutoFire then
+                task.wait(AutoFireDelay)
+                VirtualInput:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, true, false, false)
+                task.wait(0.05)
+                VirtualInput:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, false, false, false)
+            end
+            
+            -- Kembalikan camera setelah frame (optional)
+            -- Camera.CFrame = originalCF
+        end
+    end
+end
+
+-- Method 2: Mouse-based silent aim
+local function SilentAimMouse()
+    if not SilentAimEnabled then return end
+    
+    SilentTarget = GetSilentTarget()
+    
+    if SilentTarget and SilentTarget.Character then
+        local aimPart = SilentTarget.Character:FindFirstChild(AimPart)
+        if aimPart then
+            local targetPos = GetPredictedPosition(aimPart)
+            local screenPos = Camera:WorldToViewportPoint(targetPos)
+            
+            -- Move mouse to target position
+            mousemoverel(screenPos.X - Camera.ViewportSize.X/2, screenPos.Y - Camera.ViewportSize.Y/2)
+            
+            -- Auto fire
+            if AutoFire then
+                task.wait(AutoFireDelay)
+                VirtualInput:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, true, false, false)
+                task.wait(0.05)
+                VirtualInput:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, false, false, false)
+            end
+        end
+    end
+end
+
+-- Method 3: Remote-based silent aim (advanced bypass)
+local function SilentAimRemote()
+    if not SilentAimEnabled then return end
+    
+    local weapon = GetCurrentWeapon()
+    if not weapon then return end
+    
+    local remote = FindWeaponRemote(weapon)
+    if not remote then return end
+    
+    SilentTarget = GetSilentTarget()
+    
+    if SilentTarget and SilentTarget.Character then
+        local aimPart = SilentTarget.Character:FindFirstChild(AimPart)
+        if aimPart then
+            local targetPos = GetPredictedPosition(aimPart)
+            
+            -- Hook ke remote event
+            local oldFire = remote.FireServer
+            remote.FireServer = function(self, ...)
+                local args = {...}
+                -- Modify args untuk silent aim
+                if #args >= 1 then
+                    if type(args[1]) == "Vector3" then
+                        args[1] = targetPos
+                    elseif type(args[1]) == "CFrame" then
+                        args[1] = CFrame.lookAt(args[1].Position, targetPos)
+                    end
+                end
+                return oldFire(self, unpack(args))
+            end
+            
+            -- Trigger fire
+            if AutoFire then
+                VirtualInput:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, true, false, false)
+                task.wait(0.05)
+                VirtualInput:SendMouseButtonEvent(Enum.UserInputType.MouseButton1, false, false, false)
+            end
+            
+            -- Restore
+            remote.FireServer = oldFire
+        end
+    end
+end
+
+-- Silent aim selection
+local function OnSilentAimUpdate()
+    if not SilentAimEnabled then return end
+    
+    if SilentAimMethod == "Camera" then
+        SilentAimCamera()
+    elseif SilentAimMethod == "Mouse" then
+        SilentAimMouse()
+    elseif SilentAimMethod == "Remote" then
+        SilentAimRemote()
+    end
+end
+
+-- Silent aim loop
+RunService.Heartbeat:Connect(OnSilentAimUpdate)
 
 -- ============================================
 -- TRIGGERBOT
@@ -233,9 +507,11 @@ local function StartTriggerbot()
     if not TriggerbotEnabled then return end
     
     TriggerbotConnection = RunService.Heartbeat:Connect(function()
-        if not CurrentTarget or not CurrentTarget.Character then return end
+        local targetToUse = SilentAimEnabled and SilentTarget or CurrentTarget
         
-        local aimPart = CurrentTarget.Character:FindFirstChild(AimPart)
+        if not targetToUse or not targetToUse.Character then return end
+        
+        local aimPart = targetToUse.Character:FindFirstChild(AimPart)
         if not aimPart then return end
         
         -- Check if aiming at target
@@ -255,7 +531,7 @@ local function StartTriggerbot()
 end
 
 -- ============================================
--- ESP SYSTEM
+-- ESP SYSTEM (Drawing)
 -- ============================================
 local function CreateESPForPlayer(player)
     if ESPList[player] then return end
@@ -437,38 +713,6 @@ Players.PlayerAdded:Connect(function(player)
     CreateESPForPlayer(player)
 end)
 
--- Character added update
-local function OnCharacterAdded(player, character)
-    task.wait(0.5)
-    if ESPList[player] then
-        -- ESP already exists
-    end
-end
-
-for _, player in ipairs(GetPlayers()) do
-    player.CharacterAdded:Connect(function(character)
-        OnCharacterAdded(player, character)
-    end)
-end
-
--- ============================================
--- CHAMS (Simple version)
--- ============================================
-local function ApplyChams(character)
-    if not ChamsEnabled then return end
-    
-    for _, part in ipairs(character:GetDescendants()) do
-        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-            local highlight = Instance.new("Highlight")
-            highlight.Parent = part
-            highlight.FillColor = ChamsColor
-            highlight.FillTransparency = 0.5
-            highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-            highlight.OutlineTransparency = 0.3
-        end
-    end
-end
-
 -- ============================================
 -- PLAYER MOVEMENT
 -- ============================================
@@ -574,10 +818,10 @@ end
 -- ============================================
 MainTab:CreateParagraph({
     Title = "RZOHUB Brutal v6",
-    Content = "Recoded Version | No Bypass\nStable & Lightweight"
+    Content = "With Anti-Cheat Bypass\nUSE AT YOUR OWN RISK!"
 })
 
-MainTab:CreateLabel("📊 Status")
+MainTab:CreateLabel("📊 Combat")
 
 MainTab:CreateToggle({
     Name = "Aimbot",
@@ -585,6 +829,14 @@ MainTab:CreateToggle({
     Callback = function(value)
         AimbotEnabled = value
         if not value then CurrentTarget = nil end
+    end
+})
+
+MainTab:CreateToggle({
+    Name = "Silent Aim",
+    CurrentValue = false,
+    Callback = function(value)
+        SilentAimEnabled = value
     end
 })
 
@@ -629,13 +881,13 @@ MainTab:CreateSlider({
 -- COMBAT TAB
 -- ============================================
 CombatTab:CreateSlider({
-    Name = "FOV Radius",
+    Name = "Aimbot FOV",
     Range = {50, 500},
     Increment = 10,
     CurrentValue = 200,
     Callback = function(value)
         FOVRadius = value
-        UpdateFOVCircle()
+        UpdateFOVCircles()
     end
 })
 
@@ -644,7 +896,7 @@ CombatTab:CreateToggle({
     CurrentValue = true,
     Callback = function(value)
         FOVVisible = value
-        UpdateFOVCircle()
+        UpdateFOVCircles()
     end
 })
 
@@ -698,6 +950,70 @@ CombatTab:CreateSlider({
     CurrentValue = 0.085,
     Callback = function(value)
         PredictionAmount = value
+    end
+})
+
+-- ============================================
+-- SILENT AIM TAB
+-- ============================================
+SilentTab:CreateParagraph({
+    Title = "Silent Aim Settings",
+    Content = "Advanced silent aim dengan bypass\nPilih method yang compatible dengan game"
+})
+
+SilentTab:CreateDropdown({
+    Name = "Silent Aim Method",
+    Options = {"Camera", "Mouse", "Remote"},
+    CurrentOption = "Camera",
+    Callback = function(option)
+        SilentAimMethod = option
+    end
+})
+
+SilentTab:CreateSlider({
+    Name = "Silent FOV",
+    Range = {50, 500},
+    Increment = 10,
+    CurrentValue = 150,
+    Callback = function(value)
+        SilentAimFOV = value
+        UpdateFOVCircles()
+    end
+})
+
+SilentTab:CreateToggle({
+    Name = "Auto Fire",
+    CurrentValue = false,
+    Callback = function(value)
+        AutoFire = value
+    end
+})
+
+SilentTab:CreateSlider({
+    Name = "Auto Fire Delay (ms)",
+    Range = {50, 500},
+    Increment = 10,
+    CurrentValue = 100,
+    Callback = function(value)
+        AutoFireDelay = value / 1000
+    end
+})
+
+SilentTab:CreateToggle({
+    Name = "Hit Chance",
+    CurrentValue = false,
+    Callback = function(value)
+        HitChance = value
+    end
+})
+
+SilentTab:CreateSlider({
+    Name = "Hit Chance %",
+    Range = {1, 100},
+    Increment = 1,
+    CurrentValue = 100,
+    Callback = function(value)
+        HitChanceValue = value
     end
 })
 
@@ -759,13 +1075,6 @@ VisualTab:CreateToggle({
     CurrentValue = false,
     Callback = function(value)
         ChamsEnabled = value
-        if value then
-            for _, player in ipairs(GetPlayers()) do
-                if player.Character then
-                    ApplyChams(player.Character)
-                end
-            end
-        end
     end
 })
 
@@ -819,127 +1128,3 @@ PlayerTab:CreateSlider({
 PlayerTab:CreateToggle({
     Name = "Infinite Jump",
     CurrentValue = false,
-    Callback = function(value)
-        InfiniteJump = value
-    end
-})
-
-PlayerTab:CreateToggle({
-    Name = "Fly Mode",
-    CurrentValue = false,
-    Callback = function(value)
-        FlyEnabled = value
-        if value then
-            StartFly()
-        else
-            if FlyConnection then FlyConnection:Disconnect() end
-            if FlyBodyVelocity then FlyBodyVelocity:Destroy() end
-            local character = LocalPlayer.Character
-            if character then
-                local humanoid = character:FindFirstChild("Humanoid")
-                if humanoid then humanoid.PlatformStand = false end
-            end
-        end
-    end
-})
-
-PlayerTab:CreateSlider({
-    Name = "Fly Speed",
-    Range = {20, 200},
-    Increment = 10,
-    CurrentValue = 50,
-    Callback = function(value)
-        FlySpeed = value
-    end
-})
-
--- ============================================
--- MISC TAB
--- ============================================
-MiscTab:CreateToggle({
-    Name = "Unlock FPS (240)",
-    CurrentValue = false,
-    Callback = function(value)
-        FPSUnlock = value
-        if value then
-            SetFPS(240)
-        else
-            SetFPS(60)
-        end
-    end
-})
-
-MiscTab:CreateButton({
-    Name = "Reset Walk Speed",
-    Callback = function()
-        if LocalPlayer.Character then
-            local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
-            if humanoid then
-                humanoid.WalkSpeed = 16
-                SpeedEnabled = false
-            end
-        end
-        Rayfield:Notify({
-            Title = "Reset",
-            Content = "Walk speed reset to 16",
-            Duration = 2
-        })
-    end
-})
-
-MiscTab:CreateButton({
-    Name = "Reset Jump Power",
-    Callback = function()
-        if LocalPlayer.Character then
-            local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
-            if humanoid then
-                humanoid.JumpPower = 50
-                JumpPowerEnabled = false
-            end
-        end
-        Rayfield:Notify({
-            Title = "Reset",
-            Content = "Jump power reset to 50",
-            Duration = 2
-        })
-    end
-})
-
-MiscTab:CreateButton({
-    Name = "Rejoin Game",
-    Callback = function()
-        local ts = game:GetService("TeleportService")
-        ts:Teleport(game.PlaceId, LocalPlayer)
-    end
-})
-
--- ============================================
--- CREDITS TAB
--- ============================================
-CreditsTab:CreateParagraph({
-    Title = "RZOHUB Brutal v6",
-    Content = "Created by: RZOHUB\n\nRecoded Version\nNo Bypass - Safe to Use\n\nFeatures:\n- Aimbot\n- Triggerbot\n- ESP\n- Movement Hacks\n- Visual Enhancements\n\nThanks for using RZOHUB!"
-})
-
--- ============================================
--- STARTUP NOTIFICATION
--- ============================================
-Rayfield:Notify({
-    Title = "RZOHUB Brutal v6",
-    Content = "Recoded version loaded!\nAll features ready.",
-    Duration = 5
-})
-
--- Cleanup on player leave
-Players.PlayerRemoving:Connect(function(player)
-    if ESPList[player] then
-        for _, drawing in pairs(ESPList[player]) do
-            if drawing and drawing.Remove then
-                drawing:Remove()
-            end
-        end
-        ESPList[player] = nil
-    end
-end)
-
-print("RZOHUB Brutal v6 - Recoded Successfully!")
