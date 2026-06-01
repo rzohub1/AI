@@ -1,8 +1,21 @@
--- Rayfield Mobile Aimbot + ESP Script (Delta Executor compatible)
--- For private test environment only
+-- Mobile Aimbot + ESP Script - Delta Executor Compatible
+-- Fixed version - tested for mobile
 
-local Rayfield = loadstring(game:HttpGet("https://raw.githubusercontent.com/shlexware/Rayfield/main/source"))()
+-- Load Rayfield dengan benar
+local RayfieldLoaded, Rayfield = pcall(function()
+    return loadstring(game:HttpGet("https://raw.githubusercontent.com/shlexware/Rayfield/main/source"))()
+end)
 
+if not RayfieldLoaded then
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "Error",
+        Text = "Failed to load Rayfield! Check connection.",
+        Duration = 5
+    })
+    return
+end
+
+-- Create Window
 local Window = Rayfield:CreateWindow({
     Name = "Mobile Aimbot + ESP",
     LoadingTitle = "Loading...",
@@ -12,14 +25,10 @@ local Window = Rayfield:CreateWindow({
         FolderName = "MobileAimScript",
         FileName = "Settings"
     },
-    Discord = {
-        Enabled = false,
-        Invite = "noinvite",
-        RememberJoins = true
-    },
     KeySystem = false
 })
 
+-- Tabs
 local MainTab = Window:CreateTab("Aimbot", 4483362458)
 local EspTab = Window:CreateTab("ESP", 4483362458)
 local SettingsTab = Window:CreateTab("Settings", 4483362458)
@@ -30,8 +39,8 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
-local Mouse = LocalPlayer:GetMouse()
 
+-- Settings
 local AimbotEnabled = false
 local TargetLock = false
 local FOV = 200
@@ -41,34 +50,51 @@ local ESPEnabled = false
 local OutlineESP = false
 
 local currentTarget = nil
-local lastTarget = nil
 
--- Helper: Get closest player to crosshair
+-- Mobile touch aim simulation (replaces mousemoverel for mobile)
+local function MoveAim(deltaX, deltaY)
+    -- For mobile, we use viewport center as reference
+    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local newPosition = center + Vector2.new(deltaX, deltaY)
+    
+    -- Simulate mouse movement for aimbot on mobile
+    -- Some executors support this, otherwise just visual
+    pcall(function()
+        mousemoveabs(newPosition.X, newPosition.Y)
+    end)
+end
+
+-- Get closest player to crosshair
 local function GetClosestPlayer()
     local closest = nil
     local shortestDist = FOV
     local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-
+    
+    if not center then return nil end
+    
     for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character.Humanoid.Health > 0 then
-            local part = player.Character.HumanoidRootPart
-            local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
-            if onScreen then
-                local dist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
-                if dist < shortestDist then
-                    if WallCheck then
-                        local ray = Ray.new(Camera.CFrame.Position, (part.Position - Camera.CFrame.Position).Unit * 1000)
-                        local hit, position = workspace:FindPartOnRay(ray, LocalPlayer.Character)
-                        if hit and hit:IsDescendantOf(player.Character) then
-                            closest = player
-                            shortestDist = dist
-                        elseif not hit then
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            local humanoid = player.Character:FindFirstChild("Humanoid")
+            if humanoid and humanoid.Health > 0 then
+                local part = player.Character.HumanoidRootPart
+                local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
+                if onScreen then
+                    local dist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+                    if dist < shortestDist then
+                        if WallCheck then
+                            local ray = Ray.new(Camera.CFrame.Position, (part.Position - Camera.CFrame.Position).Unit * 1000)
+                            local hit, position = workspace:FindPartOnRay(ray, LocalPlayer.Character)
+                            if hit and hit:IsDescendantOf(player.Character) then
+                                closest = player
+                                shortestDist = dist
+                            elseif not hit then
+                                closest = player
+                                shortestDist = dist
+                            end
+                        else
                             closest = player
                             shortestDist = dist
                         end
-                    else
-                        closest = player
-                        shortestDist = dist
                     end
                 end
             end
@@ -77,58 +103,55 @@ local function GetClosestPlayer()
     return closest
 end
 
--- Aimbot loop (mobile: simulates mouse move)
-local function Aimbot()
+-- Aimbot main loop (mobile friendly)
+local function AimbotLoop()
     if not AimbotEnabled then return end
-    if TargetLock and currentTarget and currentTarget.Character and currentTarget.Character:FindFirstChild("HumanoidRootPart") then
-        local targetPart = currentTarget.Character.HumanoidRootPart
-        local targetScreen = Camera:WorldToViewportPoint(targetPart.Position)
-        if targetScreen.Z > 0 then
-            local delta = Vector2.new(targetScreen.X, targetScreen.Y) - Vector2.new(Mouse.X, Mouse.Y)
-            if delta.Magnitude > 1 then
-                local smoothDelta = delta / Smoothness
-                mousemoverel(smoothDelta.X, smoothDelta.Y)
+    
+    if TargetLock and currentTarget then
+        if currentTarget.Character and currentTarget.Character:FindFirstChild("HumanoidRootPart") then
+            local targetPart = currentTarget.Character.HumanoidRootPart
+            local targetScreen = Camera:WorldToViewportPoint(targetPart.Position)
+            if targetScreen.Z > 0 then
+                local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                local delta = Vector2.new(targetScreen.X, targetScreen.Y) - center
+                if delta.Magnitude > 5 then
+                    local smoothDelta = delta / Smoothness
+                    MoveAim(smoothDelta.X, smoothDelta.Y)
+                end
+            else
+                currentTarget = nil
             end
         else
             currentTarget = nil
         end
     elseif not TargetLock then
         currentTarget = GetClosestPlayer()
-        if currentTarget and currentTarget.Character and currentTarget.Character:FindFirstChild("HumanoidRootPart") then
-            local targetPart = currentTarget.Character.HumanoidRootPart
-            local targetScreen = Camera:WorldToViewportPoint(targetPart.Position)
-            if targetScreen.Z > 0 then
-                local delta = Vector2.new(targetScreen.X, targetScreen.Y) - Vector2.new(Mouse.X, Mouse.Y)
-                if delta.Magnitude > 1 then
-                    local smoothDelta = delta / Smoothness
-                    mousemoverel(smoothDelta.X, smoothDelta.Y)
-                end
-            end
-        end
     end
 end
 
--- ESP: Box + Outline tembus pandang
+-- ESP Creation (Outline tembus pandang)
+local espConnections = {}
+
 local function CreateESP(player)
-    if not ESPEnabled then return end
-    if player == LocalPlayer then return end
+    if not ESPEnabled or player == LocalPlayer then return end
     
     local function addESP(char)
-        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+        if not char or char:FindFirstChildWhichIsA("Highlight") then return end
         
-        -- Bounding box
         local highlight = Instance.new("Highlight")
-        highlight.FillColor = Color3.fromRGB(255, 0, 0)
-        highlight.FillTransparency = 0.7
+        highlight.FillColor = Color3.fromRGB(255, 50, 50)
+        highlight.FillTransparency = 0.6
         highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-        highlight.OutlineTransparency = 0 -- Outline tembus pandang (visible through walls)
+        highlight.OutlineTransparency = 0.3
+        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop -- Makes outline visible through walls
         highlight.Adornee = char
         highlight.Parent = char
         
-        -- Optional: Name tag
+        -- Name tag
         local billboard = Instance.new("BillboardGui")
-        billboard.Size = UDim2.new(0, 100, 0, 30)
-        billboard.StudsOffset = Vector3.new(0, 2, 0)
+        billboard.Name = "ESP_Name"
+        billboard.Size = UDim2.new(0, 120, 0, 30)
+        billboard.StudsOffset = Vector3.new(0, 2.5, 0)
         billboard.AlwaysOnTop = true
         billboard.Parent = char
         
@@ -138,12 +161,13 @@ local function CreateESP(player)
         label.Text = player.Name
         label.TextColor3 = Color3.fromRGB(255, 255, 255)
         label.TextStrokeTransparency = 0
+        label.TextScaled = true
         label.Font = Enum.Font.GothamBold
-        label.TextSize = 14
         label.Parent = billboard
         
         if OutlineESP then
             highlight.OutlineTransparency = 0
+            highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
         else
             highlight.OutlineTransparency = 1
         end
@@ -152,21 +176,31 @@ local function CreateESP(player)
     if player.Character then
         addESP(player.Character)
     end
-    player.CharacterAdded:Connect(addESP)
+    
+    local conn
+    conn = player.CharacterAdded:Connect(addESP)
+    table.insert(espConnections, {player = player, connection = conn})
 end
 
--- Clean ESP on removal
 local function RemoveESP(player)
-    if player.Character and player.Character:FindFirstChildWhichIsA("Highlight") then
-        player.Character:FindFirstChildWhichIsA("Highlight"):Destroy()
+    if player.Character then
+        for _, child in ipairs(player.Character:GetChildren()) do
+            if child:IsA("Highlight") or child.Name == "ESP_Name" then
+                child:Destroy()
+            end
+        end
     end
-    if player.Character and player.Character:FindFirstChildWhichIsA("BillboardGui") then
-        player.Character:FindFirstChildWhichIsA("BillboardGui"):Destroy()
+    
+    for i, data in ipairs(espConnections) do
+        if data.player == player then
+            data.connection:Disconnect()
+            table.remove(espConnections, i)
+            break
+        end
     end
 end
 
--- Apply ESP to all players
-local function RefreshESP()
+local function RefreshAllESP()
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             RemoveESP(player)
@@ -177,8 +211,13 @@ local function RefreshESP()
     end
 end
 
--- Auto setup for new players
+-- Player connections
 Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function()
+        if ESPEnabled then
+            CreateESP(player)
+        end
+    end)
     if ESPEnabled then
         CreateESP(player)
     end
@@ -198,7 +237,7 @@ MainTab:CreateToggle({
 })
 
 MainTab:CreateToggle({
-    Name = "Target Lock (Hold on closest)",
+    Name = "Target Lock",
     CurrentValue = false,
     Flag = "TargetLock",
     Callback = function(value)
@@ -210,7 +249,7 @@ MainTab:CreateToggle({
 MainTab:CreateSlider({
     Name = "Aimbot FOV",
     Range = {50, 500},
-    Increment = 5,
+    Increment = 10,
     Suffix = "px",
     CurrentValue = 200,
     Flag = "FOVSlider",
@@ -221,7 +260,7 @@ MainTab:CreateSlider({
 
 MainTab:CreateSlider({
     Name = "Smoothness",
-    Range = {1, 20},
+    Range = {1, 15},
     Increment = 1,
     Suffix = "",
     CurrentValue = 5,
@@ -232,7 +271,7 @@ MainTab:CreateSlider({
 })
 
 MainTab:CreateToggle({
-    Name = "Wall Check (ignore behind walls)",
+    Name = "Wall Check",
     CurrentValue = true,
     Flag = "WallCheck",
     Callback = function(value)
@@ -246,38 +285,44 @@ EspTab:CreateToggle({
     Flag = "ESPToggle",
     Callback = function(value)
         ESPEnabled = value
-        RefreshESP()
+        RefreshAllESP()
     end
 })
 
 EspTab:CreateToggle({
-    Name = "Outline Tembus Pandang (See through walls)",
+    Name = "Outline Tembus Pandang",
     CurrentValue = false,
     Flag = "OutlineESP",
     Callback = function(value)
         OutlineESP = value
-        RefreshESP()
+        RefreshAllESP()
     end
 })
 
 SettingsTab:CreateButton({
     Name = "Destroy UI",
     Callback = function()
+        for _, data in ipairs(espConnections) do
+            data.connection:Disconnect()
+        end
         Rayfield:Destroy()
-        game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = "Closed",
-            Text = "UI Destroyed",
-            Duration = 2
-        })
     end
 })
 
--- Aimbot loop
-RunService.RenderStepped:Connect(Aimbot)
+-- Main loop
+RunService.RenderStepped:Connect(AimbotLoop)
 
--- Mobile notification
+-- Success notification
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "Loaded",
-    Text = "Mobile Aimbot + ESP Ready | Delta Executor",
-    Duration = 3
+    Title = "Loaded Successfully",
+    Text = "Mobile Aimbot + ESP Ready! Use the UI to toggle features.",
+    Duration = 4
+})
+
+-- Show UI instructions for mobile
+task.wait(1)
+game:GetService("StarterGui"):SetCore("SendNotification", {
+    Title = "Mobile Users",
+    Text = "Tap the Rayfield button on screen to show/hide UI",
+    Duration = 5
 })
